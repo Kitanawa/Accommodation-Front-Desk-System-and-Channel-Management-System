@@ -1,0 +1,2366 @@
+openapi: 3.0.3
+info:
+  title: FDS Backend API
+  version: 0.3.0
+  description: Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.
+servers:
+  - url: http://localhost:3000
+security:
+  - bearerAuth: []
+tags:
+  - name: Sign in
+  - name: Sessions
+  - name: Reference data
+  - name: Reservations
+  - name: Stay
+  - name: Folio
+  - name: Rooms
+  - name: Rates
+  - name: Audit
+  - name: Staff accounts
+paths:
+  /api/login:
+    post:
+      tags:
+        - Sign in
+      summary: Sign in with email and password. Returns a session token.
+      description: "Who: Public. Status: implemented."
+      operationId: POST_api_login
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: INVALID_CREDENTIALS"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: ACCOUNT_DISABLED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: "Error code: ACCOUNT_LOCKED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+              required:
+                - email
+                - password
+  /api/logout:
+    post:
+      tags:
+        - Sign in
+      summary: End the current session.
+      description: "Who: Any signed-in user. Status: implemented."
+      operationId: POST_api_logout
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/me:
+    get:
+      tags:
+        - Sign in
+      summary: The signed-in user.
+      description: "Who: Any signed-in user. Status: implemented."
+      operationId: GET_api_me
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/info:
+    get:
+      tags:
+        - Sign in
+      summary: Which database the server is using.
+      description: "Who: Public. Status: implemented."
+      operationId: GET_api_info
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database:
+                    type: string
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
+  /api/sessions:
+    get:
+      tags:
+        - Sessions
+      summary: My active sessions (the current one is marked).
+      description: "Who: Any signed-in user. Status: implemented."
+      operationId: GET_api_sessions
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Session"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}:
+    delete:
+      tags:
+        - Sessions
+      summary: End one of my sessions.
+      description: "Who: Any signed-in user. Status: implemented."
+      operationId: DELETE_api_sessions_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/revoke-others:
+    post:
+      tags:
+        - Sessions
+      summary: End all my sessions except this one.
+      description: "Who: Any signed-in user. Status: implemented."
+      operationId: POST_api_sessions_revoke_others
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Revoked"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sources:
+    get:
+      tags:
+        - Reference data
+      summary: Booking sources (Walk-in, Phone, Email, Website, Travel agent, OTA).
+      description: "Who: Any signed-in user. Status: implemented."
+      operationId: GET_api_sources
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Source"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/room-types:
+    get:
+      tags:
+        - Reference data
+      summary: Room types of my property.
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_room_types
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoomType"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/dashboard:
+    get:
+      tags:
+        - Reference data
+      summary: Today's arrivals and departures, in-house count, room occupancy and pending rates (pending_rates is null for Front Desk).
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_dashboard
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/availability:
+    get:
+      tags:
+        - Reservations
+      summary: Rooms left, nightly rates and total for a stay, per room type.
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_availability
+      x-status: implemented
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: Check-in, not in the past.
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: Check-out, after from.
+        - name: guests
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Default 1.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AvailabilityItem"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/reservations:
+    post:
+      tags:
+        - Reservations
+      summary: Create a reservation (also creates its folio and one ROOM charge per night).
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationCreated"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: NO_APPROVED_RATE or NO_STOCK or SOLD_OUT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                guest:
+                  type: object
+                guest_id:
+                  type: string
+                  format: uuid
+                room_type_id:
+                  type: string
+                  format: uuid
+                check_in:
+                  type: string
+                  format: date
+                check_out:
+                  type: string
+                  format: date
+                total_guests:
+                  type: integer
+                source_id:
+                  type: integer
+                estimated_arrival:
+                  type: string
+                  format: time
+                  example: 15:00
+                special_requests:
+                  type: string
+                notes:
+                  type: string
+              required:
+                - room_type_id
+                - check_in
+                - check_out
+                - total_guests
+    get:
+      tags:
+        - Reservations
+      summary: List reservations (newest check-in first, at most 200).
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_reservations
+      x-status: implemented
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - CONFIRMED
+              - CHECKED_IN
+              - CHECKED_OUT
+              - CANCELLED
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Matches reference or guest name.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReservationRow"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/reservations/{id}:
+    get:
+      tags:
+        - Reservations
+      summary: "One reservation with its folio: charges, payments and balance."
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_reservations_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags:
+        - Reservations
+      summary: Edit guest contact details, notes, requests or arrival time.
+      description: "Who: All roles. Status: implemented."
+      operationId: PATCH_api_reservations_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                special_requests:
+                  type: string
+                notes:
+                  type: string
+                estimated_arrival:
+                  type: string
+                  format: time
+                  example: 15:00
+  /api/reservations/{id}/cancel:
+    post:
+      tags:
+        - Reservations
+      summary: Cancel a CONFIRMED reservation and release its stock.
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations_id_cancel
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/reservations/{id}/free-rooms:
+    get:
+      tags:
+        - Stay
+      summary: Rooms of the booked type that are free for the stay.
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_reservations_id_free_rooms
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FreeRoom"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/reservations/{id}/assign-room:
+    post:
+      tags:
+        - Stay
+      summary: Assign a physical room.
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations_id_assign_room
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE or ROOM_NOT_AVAILABLE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room_id:
+                  type: string
+                  format: uuid
+              required:
+                - room_id
+  /api/reservations/{id}/check-in:
+    post:
+      tags:
+        - Stay
+      summary: Check in. Uses the assigned room or picks a free Available one. The room becomes OCCUPIED.
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations_id_check_in
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE or ROOM_NOT_AVAILABLE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/reservations/{id}/check-out:
+    post:
+      tags:
+        - Stay
+      summary: Check out. Needs a zero balance. The room becomes CLEANING and the folio closes.
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations_id_check_out
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: BALANCE_OUTSTANDING or INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/reservations/{id}/charges:
+    post:
+      tags:
+        - Folio
+      summary: Post an additional charge to the folio.
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations_id_charges
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: FOLIO_CLOSED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+                quantity:
+                  type: number
+                unit_price:
+                  type: number
+              required:
+                - description
+                - unit_price
+  /api/reservations/{id}/payments:
+    post:
+      tags:
+        - Folio
+      summary: Record a payment. Cannot be more than the balance. Updates payment_status.
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations_id_payments
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                method:
+                  type: string
+                  enum:
+                    - CASH
+                    - CARD
+                    - ONLINE
+                    - BANK_TRANSFER
+              required:
+                - amount
+                - method
+  /api/rooms:
+    get:
+      tags:
+        - Rooms
+      summary: All rooms of my property with their status.
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_rooms
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Room"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/rooms/{id}/status:
+    patch:
+      tags:
+        - Rooms
+      summary: Change a room status. OCCUPIED is set by check-in only.
+      description: "Who: All roles. Status: implemented."
+      operationId: PATCH_api_rooms_id_status
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - AVAILABLE
+                    - CLEANING
+                    - MAINTENANCE_BLOCKED
+              required:
+                - status
+  /api/rates:
+    get:
+      tags:
+        - Rates
+      summary: Rate rules. Front Desk sees APPROVED only; Administrator and Manager see all.
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_rates
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rate"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - Rates
+      summary: Create a rate rule. It starts as PENDING and has no effect until approved.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: POST_api_rates
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RateCreated"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room_type_id:
+                  type: string
+                  format: uuid
+                rule_type:
+                  type: string
+                  enum:
+                    - BASE
+                    - DATE_RANGE
+                    - SELECTED_DAY
+                    - SPECIFIC_DATE
+                rate_amount:
+                  type: number
+                date_from:
+                  type: string
+                  format: date
+                date_to:
+                  type: string
+                  format: date
+                selected_days:
+                  type: array
+                  items:
+                    type: integer
+                specific_date:
+                  type: string
+                  format: date
+                priority:
+                  type: integer
+              required:
+                - room_type_id
+                - rule_type
+                - rate_amount
+  /api/rates/{id}/approve:
+    post:
+      tags:
+        - Rates
+      summary: Approve a PENDING rate. Administrator, or a Manager whose can_approve_rates is true.
+      description: "Who: Administrator; Manager only if can_approve_rates. Status: implemented."
+      operationId: POST_api_rates_id_approve
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: BASE_RATE_EXISTS or INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/audit:
+    get:
+      tags:
+        - Audit
+      summary: Latest 100 audit records of my property.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: GET_api_audit
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditRecord"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/password-policy:
+    get:
+      tags:
+        - Staff accounts
+      summary: The password rules, so a form can show them.
+      description: "Who: Public. Status: implemented."
+      operationId: GET_api_password_policy
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordPolicy"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
+  /api/me/password:
+    post:
+      tags:
+        - Staff accounts
+      summary: Change my password. Ends my other sessions.
+      description: "Who: Any signed-in user. Status: implemented."
+      operationId: POST_api_me_password
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+              required:
+                - current_password
+                - new_password
+  /api/roles:
+    get:
+      tags:
+        - Staff accounts
+      summary: The three roles.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: GET_api_roles
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/users:
+    get:
+      tags:
+        - Staff accounts
+      summary: Staff accounts of my property.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: GET_api_users
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StaffUser"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - Staff accounts
+      summary: "Create a staff account. Administrator: any role. Manager: Front Desk accounts only."
+      description: "Who: Administrator (any role); Manager (Front Desk accounts only). Status: implemented."
+      operationId: POST_api_users
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffUser"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                email:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                    - ADMINISTRATOR
+                    - OWNER_MANAGER
+                    - FRONT_DESK
+                password:
+                  type: string
+                can_approve_rates:
+                  type: boolean
+              required:
+                - full_name
+                - email
+                - role
+                - password
+  /api/users/{id}:
+    patch:
+      tags:
+        - Staff accounts
+      summary: Edit an account. A Manager may only edit full_name and is_active of Front Desk accounts. Deactivating or changing a role ends that user's sessions.
+      description: "Who: Administrator (any role); Manager (Front Desk accounts only). Status: implemented."
+      operationId: PATCH_api_users_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffUser"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                    - ADMINISTRATOR
+                    - OWNER_MANAGER
+                    - FRONT_DESK
+                can_approve_rates:
+                  type: boolean
+                is_active:
+                  type: boolean
+  /api/users/{id}/reset-password:
+    post:
+      tags:
+        - Staff accounts
+      summary: Set a new password for an account (also unlocks it) and end its sessions.
+      description: "Who: Administrator (any role); Manager (Front Desk accounts only). Status: implemented."
+      operationId: POST_api_users_id_reset_password
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_password:
+                  type: string
+              required:
+                - new_password
+  /api/users/{id}/revoke-sessions:
+    post:
+      tags:
+        - Staff accounts
+      summary: End every session of an account.
+      description: "Who: Administrator (any role); Manager (Front Desk accounts only). Status: implemented."
+      operationId: POST_api_users_id_revoke_sessions
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Revoked"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token from POST /api/login
+  schemas:
+    Ok:
+      type: object
+      properties:
+        ok:
+          type: boolean
+    User:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum:
+            - ADMINISTRATOR
+            - OWNER_MANAGER
+            - FRONT_DESK
+        can_approve_rates:
+          type: boolean
+        property_id:
+          type: string
+          format: uuid
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+    Source:
+      type: object
+      properties:
+        source_id:
+          type: integer
+        code:
+          type: string
+        name:
+          type: string
+    RoomType:
+      type: object
+      properties:
+        room_type_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          type: string
+        max_guests:
+          type: integer
+        min_nights:
+          type: integer
+        description:
+          type: string
+          nullable: true
+        facilities:
+          type: array
+          items:
+            type: string
+          nullable: true
+        layout_info:
+          type: string
+          nullable: true
+    ReservationRow:
+      type: object
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+        reservation_ref:
+          type: string
+        full_name:
+          type: string
+        room_type:
+          type: string
+        room_number:
+          type: string
+          nullable: true
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        total_guests:
+          type: integer
+        status:
+          type: string
+          enum:
+            - CONFIRMED
+            - CHECKED_IN
+            - CHECKED_OUT
+            - CANCELLED
+        payment_status:
+          type: string
+          enum:
+            - UNPAID
+            - PARTIAL
+            - PAID
+        source:
+          type: string
+        total:
+          type: number
+    DashboardRow:
+      type: object
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+        reservation_ref:
+          type: string
+        full_name:
+          type: string
+        room_type:
+          type: string
+        room_number:
+          type: string
+          nullable: true
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - CONFIRMED
+            - CHECKED_IN
+            - CHECKED_OUT
+            - CANCELLED
+        payment_status:
+          type: string
+          enum:
+            - UNPAID
+            - PARTIAL
+            - PAID
+    Dashboard:
+      type: object
+      properties:
+        today:
+          type: string
+          format: date
+        arrivals:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardRow"
+        departures:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardRow"
+        in_house:
+          type: integer
+        occupied:
+          type: integer
+        total_rooms:
+          type: integer
+        pending_rates:
+          type: integer
+          nullable: true
+    NightRate:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        rate:
+          type: number
+          nullable: true
+        rule:
+          type: string
+          nullable: true
+    AvailabilityItem:
+      type: object
+      properties:
+        room_type_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          type: string
+        max_guests:
+          type: integer
+        min_nights:
+          type: integer
+        nights:
+          type: integer
+        rooms_left:
+          type: integer
+        total:
+          type: number
+          nullable: true
+        nightly:
+          type: array
+          items:
+            $ref: "#/components/schemas/NightRate"
+        bookable:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            type: string
+    ReservationCreated:
+      type: object
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+        reservation_ref:
+          type: string
+    Charge:
+      type: object
+      properties:
+        charge_id:
+          type: string
+          format: uuid
+        charge_type:
+          type: string
+          enum:
+            - ROOM
+            - ADDITIONAL
+        description:
+          type: string
+        quantity:
+          type: number
+        unit_price:
+          type: number
+        amount:
+          type: number
+        charged_at:
+          type: string
+          format: date-time
+    Payment:
+      type: object
+      properties:
+        payment_id:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        method:
+          type: string
+          enum:
+            - CASH
+            - CARD
+            - ONLINE
+            - BANK_TRANSFER
+        status:
+          type: string
+          enum:
+            - PENDING
+            - COMPLETED
+            - FAILED
+        paid_at:
+          type: string
+          format: date-time
+    ReservationDetail:
+      type: object
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+        reservation_ref:
+          type: string
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        estimated_arrival:
+          type: string
+          format: time
+          example: 15:00
+          nullable: true
+        total_guests:
+          type: integer
+        status:
+          type: string
+          enum:
+            - CONFIRMED
+            - CHECKED_IN
+            - CHECKED_OUT
+            - CANCELLED
+        payment_status:
+          type: string
+          enum:
+            - UNPAID
+            - PARTIAL
+            - PAID
+        special_requests:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        guest_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        nationality:
+          type: string
+          nullable: true
+        id_passport_no:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        source:
+          type: string
+        reservation_room_id:
+          type: string
+          format: uuid
+        room_type_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+          nullable: true
+        rate_total:
+          type: number
+        room_type:
+          type: string
+        room_number:
+          type: string
+          nullable: true
+        folio_id:
+          type: string
+          format: uuid
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        charges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Charge"
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+        total_charges:
+          type: number
+        total_paid:
+          type: number
+        balance:
+          type: number
+    FreeRoom:
+      type: object
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        room_number:
+          type: string
+        status:
+          type: string
+          enum:
+            - AVAILABLE
+            - OCCUPIED
+            - CLEANING
+            - MAINTENANCE_BLOCKED
+    Room:
+      type: object
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        room_number:
+          type: string
+        room_type:
+          type: string
+        status:
+          type: string
+          enum:
+            - AVAILABLE
+            - OCCUPIED
+            - CLEANING
+            - MAINTENANCE_BLOCKED
+        in_house_ref:
+          type: string
+          nullable: true
+    Rate:
+      type: object
+      properties:
+        rate_rule_id:
+          type: string
+          format: uuid
+        room_type:
+          type: string
+        rule_type:
+          type: string
+          enum:
+            - BASE
+            - DATE_RANGE
+            - SELECTED_DAY
+            - SPECIFIC_DATE
+        rate_amount:
+          type: number
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to:
+          type: string
+          format: date
+          nullable: true
+        selected_days:
+          type: array
+          items:
+            type: integer
+          nullable: true
+        specific_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: integer
+          nullable: true
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+    RateCreated:
+      type: object
+      properties:
+        rate_rule_id:
+          type: string
+          format: uuid
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+    AuditRecord:
+      type: object
+      properties:
+        audit_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        full_name:
+          type: string
+        action:
+          type: string
+        entity_type:
+          type: string
+        new_values:
+          type: object
+          nullable: true
+    StaffUser:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum:
+            - ADMINISTRATOR
+            - OWNER_MANAGER
+            - FRONT_DESK
+        can_approve_rates:
+          type: boolean
+        is_active:
+          type: boolean
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        user_agent:
+          type: string
+          nullable: true
+        current:
+          type: boolean
+    Revoked:
+      type: object
+      properties:
+        revoked:
+          type: integer
+    PasswordPolicy:
+      type: object
+      properties:
+        min_length:
+          type: integer
+        max_length:
+          type: integer
+        rules:
+          type: array
+          items:
+            type: string
+    Role:
+      type: object
+      properties:
+        name:
+          type: string
+          enum:
+            - ADMINISTRATOR
+            - OWNER_MANAGER
+            - FRONT_DESK
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - request_id
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - UNAUTHENTICATED
+                - INVALID_CREDENTIALS
+                - SESSION_REVOKED
+                - SESSION_EXPIRED
+                - FORBIDDEN
+                - ACCOUNT_DISABLED
+                - NOT_FOUND
+                - CONFLICT
+                - INVALID_STATE
+                - SOLD_OUT
+                - NO_STOCK
+                - NO_APPROVED_RATE
+                - ROOM_NOT_AVAILABLE
+                - BALANCE_OUTSTANDING
+                - FOLIO_CLOSED
+                - BASE_RATE_EXISTS
+                - ACCOUNT_LOCKED
+                - INTERNAL_ERROR
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
+            fields:
+              type: array
+              description: Present for VALIDATION_ERROR and some conflicts.
+              items:
+                type: object
+                required:
+                  - field
+                  - message
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
