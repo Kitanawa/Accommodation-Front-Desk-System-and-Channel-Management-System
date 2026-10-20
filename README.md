@@ -1,26 +1,45 @@
-# FDS Backend (M08: S052 to S058)
+# FDS Backend (M08, S052 to S058): How to Run
 
-Accommodation Front Desk System backend, built from SRS Draft 2. Node.js, Express, PostgreSQL.
+Needs Node.js 18 or newer. Commands are for Windows Command Prompt, run inside this folder.
 
-| Subtask | Where |
-|---|---|
-| **S052, S053** ERD and approval/pricing/audit tables | `erd/` (Mermaid, PNG, data dictionary, review workbook, SQL) |
-| **S054** Migrations and anonymous seed fixtures | `migrations/`, `migrate.js`, `cli.js`, `seed.js`. Guide: `docs/S054_MIGRATIONS_AND_FIXTURES.md` |
-| **S055** API contracts, identifiers, response errors | `docs/API_CONTRACT.md` (read this), `docs/openapi.yaml` (for tools), `errors.js` (error catalog) |
-| **S056** Authentication, hashing, session revocation | `auth.js`, `password.js`, `/api/login`, `/api/sessions` |
-| **S057** Role and property checks | `permissions.js`, tests `08`, `06` |
-| **S058** Staff accounts and password validation | `/api/users`, `/api/me/password`, `/api/password-policy` |
-
-## Run it (Node 18 or newer)
+## 1. Run with the built-in database (easiest)
 
 ```
 npm install
-npm start          # http://localhost:3000. Creates and fills the database on first start.
-npm test           # 6 test files, 149 checks
+npm test
+npm start
 ```
-With no setup it uses an embedded PostgreSQL engine and keeps data in `data/`. To use your own PostgreSQL server: `DATABASE_URL=postgres://user:password@localhost:5432/fds npm start`.
 
-Demo accounts (anonymous fixtures):
+- `npm test` should end with `TOTAL: 281 passed, 0 failed, 9 test files`.
+- `npm start` runs the API at http://localhost:3000. Stop it with Ctrl+C.
+- Data is kept in a `data/` folder. No database install needed.
+
+## 2. Run with a real PostgreSQL server
+
+1. Create an empty database called `fds`.
+2. Run:
+
+```
+set DATABASE_URL=postgres://postgres:YOUR_PASSWORD@localhost:5432/fds
+npm run migrate
+npm run seed
+npm start
+```
+
+- Use your own PostgreSQL user and password, with no quotes.
+- Special characters in the password must be encoded: `@` is `%40`, `#` is `%23`, `/` is `%2F`, `:` is `%3A`, `%` is `%25`.
+- `npm run migrate` creates all 18 tables. You do not create tables by hand.
+- Never commit a real password. Use `.env` (copy `.env.example`).
+
+## 3. Test the sign-in
+
+With the server running, open a second Command Prompt window:
+
+```
+curl -X POST http://localhost:3000/api/login -H "Content-Type: application/json" -d "{\"email\":\"admin@fds.test\",\"password\":\"Orchid-Demo-2026\"}"
+```
+
+Demo accounts:
 
 | Role | Email | Password |
 |---|---|---|
@@ -28,24 +47,19 @@ Demo accounts (anonymous fixtures):
 | Owner / Manager | manager@fds.test | Lantern-Demo-2026 |
 | Front Desk | frontdesk@fds.test | Meadow-Demo-2026 |
 
-## What runs today
+To try every endpoint, import `docs\openapi.yaml` into Postman.
 
-All the reservation work (availability, create, edit, cancel, assign room, check-in, check-out, folio, payments, rooms, rates, approval, audit, dashboard) follows the contract: UUID ids, one error shape with codes, `X-Request-Id`, role checks from the SRS matrix, and every query limited to the caller's property.
+## Other commands
 
-Because the contract describes sign-in, the supporting parts of S056 are already in: database-backed sessions, expiry, idle timeout, logout revocation, lockout after 5 wrong passwords, scrypt hashing.
+| Command | What it does |
+|---|---|
+| `npm run migrate:status` | Shows which migrations are applied |
+| `npm run migrate:down` | Rolls back the latest migration |
+| `npm run db:reset` | Wipes, migrates and seeds again (deletes data) |
+| `npm run docs` | Rebuilds `docs\API_CONTRACT.md` and `docs\openapi.yaml` |
 
-**Still to build** (defined in the contract, marked S056 / S058): the endpoints to list and revoke sessions, and everything for staff accounts and passwords (create, edit, reset, change, password rules).
+## Problems
 
-## Files
-
-```
-migrations/    001_init, 002_auth (up and down SQL)
-migrate.js     migration runner      cli.js   migrate / rollback / status / seed / reset
-seed.js        anonymous fixtures
-server.js      the API               auth.js  sign-in and sessions     permissions.js  SRS role matrix
-service.js     pricing, availability, reservations     password.js   hashing and password rules     errors.js   error catalog
-docs/          API_CONTRACT.md, openapi.yaml, contract.js (their single source), build.js, S054 guide, evidence note
-test/          01 migrations, 02 fixtures, 03 contract, 04 business flows, 05 contract drift, 06 property scope
-```
-
-Regenerate the contract files after changing `docs/contract.js`: `npm run docs`. Test 05 fails if they are out of date.
+- `password authentication failed`: wrong user or password in `DATABASE_URL`. The default user is `postgres`.
+- `database "fds" does not exist`: create it first.
+- `ACCOUNT_LOCKED`: five wrong passwords lock an account for 15 minutes. `npm run db:reset` clears it on a development database.
