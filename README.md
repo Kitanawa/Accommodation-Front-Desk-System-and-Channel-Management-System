@@ -2,7 +2,7 @@
 
 Needs Node.js 18 or newer. Commands are for Windows Command Prompt, run inside this folder.
 
-## 1. Run with the built-in database (easiest)
+## 1. Run with the built-in database 
 
 ```
 npm install
