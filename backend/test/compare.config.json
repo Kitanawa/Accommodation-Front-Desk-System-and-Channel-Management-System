@@ -1,9 +1,0 @@
-{
-  "_note": "Fill in prices yourself from each provider's pricing page, and write the date you checked in priceCheckedOn. Prices are USD per 1 million tokens. Leave null to skip the cost column. Copy model codes EXACTLY from each provider's console/docs.",
-  "contenders": [
-    { "name": "rules-baseline", "provider": "rules", "model": null },
-    { "name": "gemini-flash-lite", "provider": "gemini", "model": "gemini-3.1-flash-lite", "inputPerM": null, "outputPerM": null, "priceCheckedOn": null },
-    { "name": "openai-mini", "provider": "openai", "model": "gpt-5.4-mini", "inputPerM": 0.75, "outputPerM": 4.50, "priceCheckedOn": "09/10/2026" },
-    { "name": "claude-haiku-4.5", "provider": "anthropic", "model": "claude-haiku-4-5-20251001", "inputPerM": null, "outputPerM": null, "priceCheckedOn": null }
-  ]
-}
