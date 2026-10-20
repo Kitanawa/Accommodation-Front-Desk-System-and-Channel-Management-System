@@ -1,3 +1,4 @@
+/* Purpose: Global browser defaults and shared base typography used by the React application. */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root{font-family:Inter,Segoe UI,sans-serif;color:var(--text);background:var(--page);font-synthesis:none}*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.5}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--primary-outline);outline-offset:2px}button{transition:background .15s}h1,h2,h3,p{margin-top:0}button,input,select{border-radius:5px}input,select{border:1px solid var(--border);background:white;color:var(--text);padding:11px;width:100%;min-height:42px}label{display:block;font-size:11px;color:var(--muted)}label input,label select{margin-top:7px;font-size:12px}small{font-size:10px}table{border-collapse:collapse;width:100%}th,td{text-align:left} 
 

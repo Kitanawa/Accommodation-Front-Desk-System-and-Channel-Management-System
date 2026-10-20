@@ -1,3 +1,4 @@
+// Purpose: Form for moving an occupied stay to other rooms or extending checkout. Shared booking rules validate the change before the parent saves it.
 import { useState } from 'react'
 import { moveStay, extendStay, roomsForBooking, stayNights, folioTotals } from './bookingRules'
 export default function StayChange({mode,booking,bookings,units,cleaning,rooms,today,money,onSave,onBack,error}) {

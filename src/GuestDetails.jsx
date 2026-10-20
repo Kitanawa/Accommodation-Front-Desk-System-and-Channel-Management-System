@@ -1,3 +1,4 @@
+// Purpose: Booking step for guest information and review. Controlled inputs update the parent draft, and saved profiles can fill guest fields without confirming a booking.
 import Accordion from './Accordion'
 import { useState,useDeferredValue,useMemo } from 'react'
 import { guestDirectory } from './adminRules'
@@ -7,12 +8,14 @@ export default function GuestDetails({ bookings, profiles, propertyName, city, r
   const savedGuests = useMemo(()=>guestDirectory(bookings,profiles),[bookings,profiles])
   const matches = savedGuests.filter(profile=>[profile.name,profile.phone,profile.email].some(value=>(value||'').toLowerCase().includes(deferredSearch.toLowerCase())))
   const selectedProfile = savedGuests.find(profile=>profile.id===guest.profileId)
+  // Copy saved contact fields into this booking draft while retaining stay-specific values such as arrival time.
   function insertGuest(profile) {
     const next = {...guest,profileId:profile.id}
     for(const name of ['name','phone','email','nationality','identity','address','language','requests']) next[name]=profile[name]||''
     setGuest(next)
     setGuestSearch('')
   }
+  // Unlink the saved profile and clear its guest fields so staff can enter a different guest.
   function newGuest() {
     const next = {...guest}
     delete next.profileId

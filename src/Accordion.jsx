@@ -1,3 +1,4 @@
+// Purpose: Reusable collapsible section. Uses native details/summary semantics with React state so staff can reveal supporting information when needed.
 import { useState } from 'react'
 export default function Accordion({title,subtitle,count,defaultOpen=false,children,className=''}){
  const [open,setOpen]=useState(defaultOpen)

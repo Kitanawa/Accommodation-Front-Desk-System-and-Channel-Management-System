@@ -1,7 +1,9 @@
+// Purpose: Authentication API adapter: selects browser-only demo handling or real HTTP requests. Frontend permissions still require independent server enforcement.
 import { createDemoApi } from './demoAuth'
 export const demoMode=import.meta.env.VITE_DEMO_AUTH==='true'
 const demoApi=createDemoApi({getItem:key=>localStorage.getItem(key),setItem:(key,value)=>localStorage.setItem(key,value)},{getItem:key=>sessionStorage.getItem(key),setItem:(key,value)=>sessionStorage.setItem(key,value),removeItem:key=>sessionStorage.removeItem(key)})
 export const roleLabels={admin:'Admin',manager:'Manager',front_desk:'Front Desk Staff'}
+// Dispatch demo requests locally or fetch JSON with cookies, a 15-second timeout and readable failure messages.
 export async function api(path,options={}){
  options.signal?.throwIfAborted()
  if(demoMode)return demoApi(path,options)

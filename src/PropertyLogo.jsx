@@ -1,3 +1,4 @@
+// Purpose: Logo upload control: validates the selected image, resizes it for browser storage and passes a preview to the settings draft.
 import { useRef,useState } from 'react'
 export default function PropertyLogo({user,value,onChange}) {
  const [busy,setBusy]=useState(false),[error,setError]=useState('')

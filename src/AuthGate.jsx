@@ -1,3 +1,4 @@
+// Purpose: Authentication boundary: checks the session, shows login or initial setup when needed, and renders the workspace after successful authentication.
 import { useEffect,useState } from 'react'
 import { api, demoMode } from './authApi'
 import { demoAdmin } from './demoAuth'

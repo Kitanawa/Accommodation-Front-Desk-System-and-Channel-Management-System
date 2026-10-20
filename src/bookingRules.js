@@ -1,14 +1,24 @@
+// Purpose: Shared pure rules for reservations, physical allocations and folios. Stays include check-in and exclude check-out. Money calculations use integer cents.
+// Treat older bookings without a status as Upcoming.
 export const statusOf = b => b.status || 'Upcoming'
+// Exclude cancelled, departed and no-show bookings from current operational stock.
 export const occupiesInventory = b => !['Cancelled','Checked-out','No-show'].includes(statusOf(b))
+// Flatten room types into individual room units, supporting older stock-only records.
 export const physicalRooms = rooms => rooms.flatMap((r,index)=>(r.units || Array.from({length:r.stock},(_,i)=>({id:String((index+2)*100+i+1)}))).map(unit=>({...unit,type:r.id,name:r.name})))
+// Read assigned room numbers while supporting the older single-room field.
 export function roomsForBooking(booking) { return booking.roomNumbers || (booking.roomNumber ? [booking.roomNumber] : []) }
+// Read dated room assignments, falling back to the original stay for older records.
 export function allocationsFor(b) { return b.allocations || [{start:b.start,end:b.end,numbers:roomsForBooking(b)}] }
+// Find the rooms occupied on this date, excluding the allocation end date.
 export function roomsOnDate(b,date) { return allocationsFor(b).find(a=>a.start<=date&&a.end>date)?.numbers || [] }
+// Require the right number of unique rooms, matching room types, no blocked rooms and no overlapping assignments.
 export function canAssign(booking,numbers,bookings,units,cleaning) {
  return numbers.length===booking.quantity && new Set(numbers).size===numbers.length && numbers.every(number=>units.some(u=>u.id===number&&u.type===booking.room) && cleaning[number]?.status!=='Blocked' && !bookings.some(other=>other.id!==booking.id&&occupiesInventory(other)&&allocationsFor(other).some(a=>a.start<booking.end&&a.end>booking.start&&a.numbers.includes(number))))
 }
 const utc = value => { const [y,m,d]=value.split('-').map(Number);return Date.UTC(y,m-1,d) }
+// Count checkout-exclusive nights using UTC dates to avoid daylight-saving hour differences.
 export const stayNights = (start,end) => Math.round((utc(end)-utc(start))/86400000)
+// Validate an active room move and preserve earlier dated allocations and the move reason.
 export function moveStay(b,numbers,date,bookings,units,cleaning,reason) {
  if(statusOf(b)!=='Checked-in'||date<b.start||date>=b.end)throw new Error('Room moves require an active checked-in stay.')
  if(!reason?.trim())throw new Error('Enter a reason for the move.')
@@ -17,6 +27,7 @@ export function moveStay(b,numbers,date,bookings,units,cleaning,reason) {
  const history=allocationsFor(b).filter(a=>a.start<date).map(a=>({...a,end:a.end>date?date:a.end}))
  return {...b,roomNumbers:numbers,allocations:[...history,{start:date,end:b.end,numbers}],roomMoves:[...(b.roomMoves||[]),{date,from:roomsForBooking(b),to:numbers,reason:reason.trim()}]}
 }
+// Validate extra nights against assignments and stock, then add only the extra room charges.
 export function extendStay(b,end,rate,bookings,units,cleaning,stock,blocks=[]) {
  const nights=stayNights(b.end,end)
  if(statusOf(b)!=='Checked-in'||!Number.isFinite(nights)||nights<1||nights>365)throw new Error('Choose a later check-out date, up to 365 additional nights.')
@@ -26,17 +37,20 @@ export function extendStay(b,end,rate,bookings,units,cleaning,stock,blocks=[]) {
  const allocations=allocationsFor(b).map((a,i,list)=>i===list.length-1?{...a,end}:a)
  return {...b,end,total:(Math.round(b.total*100)+extraCents)/100,allocations,extensions:[...(b.extensions||[]),{start:b.end,end,nights,amountCents:extraCents}]}
 }
+// Combine the original room total, added charges and payments into cent-based totals.
 export function folioTotals(b) {
  const charges=Math.round(b.total*100)+(b.charges||[]).reduce((sum,c)=>sum+c.amountCents,0)
  const paid=(b.payments||[]).reduce((sum,p)=>sum+p.amountCents,0)
  return {charges,paid,balance:charges-paid,status:charges-paid===0?'Paid':paid>0?'Partially Paid':'Unpaid'}
 }
+// Validate positive MYR amounts with at most two decimals and convert them to integer cents.
 export function amountCents(value) {
  if(!/^\d+(\.\d{1,2})?$/.test(String(value)))throw new Error('Enter an amount with up to two decimal places.')
  const cents=Math.round(Number(value)*100)
  if(!Number.isSafeInteger(cents)||cents<=0||cents>100000000)throw new Error('Enter an amount between RM 0.01 and RM 1,000,000.')
  return cents
 }
+// Append a validated charge or demo payment without allowing an overpayment.
 export function addFolioEntry(b,kind,entry) {
  if(['Cancelled','No-show'].includes(statusOf(b)))throw new Error('This reservation cannot accept billing entries.')
  const cents=amountCents(entry.amount)

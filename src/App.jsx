@@ -1,3 +1,4 @@
+// Purpose: Main workspace: owns shared booking and property state, switches pages, and connects the calendar to the guest-details workflow. Demo business data persists in this browser.
 import { deleteGuestProfile } from './adminRules'
 import StaffManagement from './StaffManagement'
 import { roleLabels, demoMode } from './authApi'
@@ -29,9 +30,11 @@ const add = (date,n) => new Date(date.getFullYear(),date.getMonth(),date.getDate
 const nightsBetween = (a,b) => Math.round((Date.UTC(b.getFullYear(),b.getMonth(),b.getDate())-Date.UTC(a.getFullYear(),a.getMonth(),a.getDate()))/dayMs)
 const pretty = date => date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})
 const money = amount => new Intl.NumberFormat('en-MY',{style:'currency',currency:'MYR'}).format(amount)
+// Restore demo reservations, falling back to an empty list if stored JSON cannot be read.
 function loadBookings() { try { return JSON.parse(localStorage.getItem('miri-bookings') || '[]') } catch { return [] } }
 
 const defaultSettings={propertyName:'Demo Hotel Miri',city:'Miri',staffName:'Front Desk Staff',arrivalTime:'14:00',contactEmail:'',contactPhone:'',logoDataUrl:''}
+// Read a browser-stored value safely and use the supplied default when unavailable.
 function loadLocal(name,fallback){try{const value=JSON.parse(localStorage.getItem(name));return value ?? fallback}catch{return fallback}}
 export default function App({user,onSignOut,onUserUpdate}) {
  const canManageStaff=['admin','manager'].includes(user.role)
@@ -40,7 +43,9 @@ export default function App({user,onSignOut,onUserUpdate}) {
 
  const [settings,setSettings]=useState(()=>({...defaultSettings,...loadLocal('miri-settings',{})}))
  const [profiles,setProfiles]=useState(()=>loadLocal('miri-guests',[]))
+ // Apply guest deletion rules and clear a deleted profile from the current guest draft.
  function deleteProfile(id){try{const next=deleteGuestProfile(user.role,id,profiles,bookings);if(!saveLocal('miri-guests',next,setProfiles))return false;if(guest.profileId===id){const cleared={...guest};delete cleared.profileId;for(const key of ['name','phone','email','nationality','identity','address','language','requests'])cleared[key]='';setGuest(cleared)}return true}catch(error){setNotice(error.message);return false}}
+ // Write browser storage before updating React state, returning false when persistence fails.
  function saveLocal(name,value,setValue){try{localStorage.setItem(name,JSON.stringify(value));setValue(value);return true}catch{return false}}
 
   const [today] = useState(() => parse(key(new Date())))
@@ -50,6 +55,7 @@ export default function App({user,onSignOut,onUserUpdate}) {
   const [bookings,setBookings] = useState(loadBookings)
   const [page,setPageState] = useState('Booking')
   const [pagePending,startPageTransition]=useTransition()
+  // Schedule page switching as a React transition so the interface can show pending feedback.
   function setPage(next){startPageTransition(()=>setPageState(next))}
   const [bookingStep,setBookingStep] = useState('room')
   const [notice,setNotice] = useState('')
@@ -63,6 +69,7 @@ export default function App({user,onSignOut,onUserUpdate}) {
   const available = (r,date) => Math.max(0,inventoryAt(r,key(date),bookings,cleaning,rooms).remaining)
   const rangeStock = selection && room ? Math.min(...Array.from({length:nights},(_,i)=>available(room,add(parse(selection.start),i)))) : 0
   const total = room ? nights*room.rate*quantity : 0
+  // Order the selected dates, validate every occupied night and reset the selected room quantity.
   function selectRange(id,a,b) {
     const start = a<b?a:b, end = a<b?b:a
     const r = rooms.find(item=>item.id===id)
@@ -71,6 +78,7 @@ export default function App({user,onSignOut,onUserUpdate}) {
     setSelection({room:id,start,end:start===end?key(add(parse(start),1)):end})
     setQuantity(1); setNotice('')
   }
+  // Start a left-button pointer selection only for an available room on today or a later date.
   function begin(id,date,event) {
     if(event.button!==0 || key(date)<key(today)) return
     if(!available(rooms.find(r=>r.id===id),date)) return
@@ -78,12 +86,14 @@ export default function App({user,onSignOut,onUserUpdate}) {
     drag.current={room:id,start:key(date),end:key(date),moved:false}
     selectRange(id,key(date),key(date))
   }
+  // Extend a drag selection within the same room type as the pointer crosses calendar dates.
   function move(id,date) {
     const d=drag.current
     if(!d || d.room!==id || key(date)<key(today)) return
     if(d.end!==key(date)) d.moved=true
     d.end=key(date); selectRange(id,d.start,d.end)
   }
+  // Complete a drag or combine two clicks into a stay range, then clear the active pointer state.
   function finish() {
     const d=drag.current
     if(!d) return
@@ -97,12 +107,14 @@ export default function App({user,onSignOut,onUserUpdate}) {
     window.addEventListener('blur', finish)
     return () => { window.removeEventListener('pointerup', finish); window.removeEventListener('blur', finish) }
   })
+  // Validate manually edited dates and reuse the same calendar selection rules.
   function changeDate(field,value) {
     if(!value || !selection) return
     const next={...selection,[field]:value}
     if(next.start<key(today) || next.end<=next.start) {setNotice('Check-out must be after check-in, and check-in cannot be in the past.');return}
     selectRange(next.room,next.start,next.end)
   }
+  // Recheck publication and stock before copying the guest draft into a new reservation.
   function save(event) {
     event?.preventDefault()
     if(!room||!isBookable(room)){setNotice('This room type is not published. Choose another room.');setBookingStep('room');return}

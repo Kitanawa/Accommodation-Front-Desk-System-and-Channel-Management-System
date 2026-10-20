@@ -1,4 +1,6 @@
+// Purpose: Shared room-stock rules: subtract blocked and reserved rooms, reject unsafe edits, and manage local rate-draft transitions.
 import { occupiesInventory, physicalRooms, allocationsFor } from './bookingRules.js'
+// Calculate remaining stock for one room type and date. ignoreId excludes a booking when validating its replacement.
 export function inventoryAt(room,date,bookings,cleaning={},allRooms=[room],ignoreId=null){
  const capacity=room.stock
  const physicalBlocked=physicalRooms(allRooms).filter(u=>u.type===room.id&&cleaning[u.id]?.status==='Blocked').length
@@ -6,6 +8,7 @@ export function inventoryAt(room,date,bookings,cleaning={},allRooms=[room],ignor
  const reserved=bookings.filter(b=>b.id!==ignoreId&&occupiesInventory(b)&&b.room===room.id&&b.start<=date&&b.end>date).reduce((sum,b)=>sum+b.quantity,0)
  return {capacity,blocked:physicalBlocked+datedBlocked,reserved,remaining:capacity-physicalBlocked-datedBlocked-reserved}
 }
+// Protect stable room IDs and historical references, then reject changes that would leave future stock negative.
 export function validateRoomChange(rooms,next,bookings,cleaning,today){
  if(next.length<rooms.length||rooms.some((r,i)=>r.id!==next[i].id))throw new Error('Room type order and identifiers must remain unchanged.')
  const physicalIds=physicalRooms(next).map(u=>u.id)
@@ -24,11 +27,13 @@ export function validateRoomChange(rooms,next,bookings,cleaning,today){
  }
  return next
 }
+// Create a dated stock hold after validating dates, quantity and reason. The end date is excluded.
 export function createInventoryBlock(room,draft,today,id){
  const quantity=Number(draft.quantity)
  if(!draft.start||!draft.end||draft.start<today||draft.end<=draft.start||!Number.isInteger(quantity)||quantity<1||quantity>room.stock||!draft.reason?.trim())throw new Error('Choose future dates, a positive whole-room quantity and a reason. End date is excluded.')
  return {...room,blocks:[...(room.blocks||[]),{id,start:draft.start,end:draft.end,quantity,reason:draft.reason.trim()}]}
 }
+// Move a rate draft through submission, approval or rejection. Publishing rejects drafts based on an outdated rate.
 export function rateTransition(room,action,input,stamp){
  if(action==='draft'){
  if(!/^\d+(\.\d{1,2})?$/.test(String(input.rate))||Number(input.rate)<=0||Number(input.rate)>1000000||!input.reason?.trim())throw new Error('Enter a positive MYR rate with up to two decimal places and a reason.')

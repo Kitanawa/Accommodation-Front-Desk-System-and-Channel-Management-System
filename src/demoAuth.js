@@ -1,9 +1,12 @@
+// Purpose: Browser-only authentication simulator for sample accounts. Passwords persist as plain text in demo storage, so this module must not handle real credentials.
 // Synthetic credentials for local UI demonstrations only. Never use for deployment.
 export const demoAdmin={id:'demo-admin',name:'Demo Admin',email:'admin@hotel.local',phone:'',role:'admin',status:'active',password:'DemoAdmin123!'}
 const visible=user=>{const {password:_password,...details}=user;return details}
 const error=(status,message)=>Object.assign(new Error(message),{status})
+// Inject storage adapters so demo authentication can run in the browser and in isolated tests.
 export function createDemoApi(storage,session){
  const key='miri-demo-accounts',sessionKey='miri-demo-session'
+ // Restore demo accounts or seed the synthetic admin on the first run.
  function accounts(){const raw=storage.getItem(key);if(raw)return JSON.parse(raw);const initial=[{...demoAdmin}];storage.setItem(key,JSON.stringify(initial));return initial}
  return async function demoApi(path,options={}){
   const method=options.method||'GET',body=options.body?JSON.parse(options.body):{}
