@@ -31,3 +31,9 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Expo local tooling state
+.expo/
+# Local previews, generated screenshots and machine-specific test scripts
+/artifacts/
+/test-results/

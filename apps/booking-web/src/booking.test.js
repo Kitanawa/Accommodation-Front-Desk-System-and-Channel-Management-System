@@ -1,0 +1,7 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {rooms,validateStay,availableRooms,createBooking} from './booking.js'
+const today='2026-10-20',stay={start:today,end:'2026-10-22',guests:2},guest={name:'Guest 1',email:'guest1@example.com',phone:'+60000000000'}
+test('reject past, reversed and excessively long stays',()=>{assert.equal(validateStay(stay,today),2);for(const input of [{...stay,start:'2026-10-19'},{...stay,end:today},{...stay,end:'2027-01-01'}])assert.throws(()=>validateStay(input,today))})
+test('inventory counts each night and excludes departure; cancelled bookings release rooms',()=>{const room={...rooms[0],stock:1};const old={room:room.id,start:'2026-10-19',end:today};assert.equal(availableRooms(room,stay,[old]),1);assert.equal(availableRooms(room,stay,[{...old,end:'2026-10-21'}]),0);assert.equal(availableRooms(room,stay,[{...old,end:'2026-10-21',status:'Cancelled'}]),1)})
+test('booking rejects capacity or sold-out stock and preserves the confirmed price',()=>{assert.throws(()=>createBooking(rooms[0],{...stay,guests:4},guest,[],today));assert.throws(()=>createBooking({...rooms[0],stock:0},stay,guest,[],today));const result=createBooking(rooms[0],stay,guest,[],today);assert.equal(result.total,440);assert.equal(result.paymentStatus,'Pay at property');assert.equal(result.source,'Direct website demo');assert.equal(result.guest.name,'Guest 1')})

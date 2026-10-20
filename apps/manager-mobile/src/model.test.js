@@ -1,0 +1,6 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {seedRequests,reviewRequest,notificationFor} from './model.js'
+test('Manager approval retains submitted rules and records the reviewer',()=>{const request=seedRequests()[0];const next=reviewRequest(request,'approve','Checked','manager','2026-10-20T12:00:00Z');assert.equal(next.status,'Approved');assert.equal(next.reviewRemark,'Checked');assert.equal(next.reviewedBy,'manager 1');assert.equal(next.rules.length,3);assert.equal(request.status,'Pending');assert.throws(()=>reviewRequest(next,'approve','','manager'),/already been/)})
+test('rejection remark and Manager role are mandatory',()=>{const request=seedRequests()[0];assert.throws(()=>reviewRequest(request,'reject','   '),/rejection reason/);assert.throws(()=>reviewRequest(request,'approve','','admin'),/Only Manager/);assert.throws(()=>reviewRequest(request,'approve','','front_desk'),/Only Manager/);assert.equal(reviewRequest(request,'reject','Revise weekend pricing').status,'Rejected')})
+test('room type approval requires stock; notification links to the same request',()=>{const request=seedRequests()[1];assert.throws(()=>reviewRequest({...request,stock:0},'approve',''),/physical rooms/);assert.equal(notificationFor(request).requestId,request.id)})

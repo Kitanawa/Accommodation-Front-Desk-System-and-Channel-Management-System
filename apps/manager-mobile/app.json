@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Demo Hotel Manager",
+    "slug": "demo-hotel-manager",
+    "scheme": "demohotelmanager",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.demohotel.manager"
+    },
+    "android": {
+      "package": "com.demohotel.manager",
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "name": "Demo Hotel Manager",
+      "shortName": "Hotel Manager"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-status-bar",
+      "expo-font"
+    ]
+  }
+}
