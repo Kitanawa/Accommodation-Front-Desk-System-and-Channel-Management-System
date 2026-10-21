@@ -91,6 +91,13 @@ const en = {
   findNone: (x) => `I could not find any booking for ${x}.`,
   refuseFinancial: () => 'I cannot give refunds, discounts, vouchers or change rates. Those decisions are made by staff with the right access. I can show rates and availability if that helps.',
   refuseCancel: () => 'I cannot cancel bookings. Open the booking on the dashboard and use Cancel. If you give me the booking ID, I can check whether it is still free to cancel.',
+  extEnded: (ref) => `${ref} has already checked out, so it cannot be extended. A new stay needs a new booking.`,
+  unpaidMore: (v) => `...and ${v.rest} more (${v.total} unpaid in total). Ask about a specific guest or booking ID to narrow it down.`,
+  extPolicy: () => 'I cannot change the booking. Use Edit Room on the dashboard.',
+  cancelPolicyFree: () => 'That is more than 72 hours before check-in, so it is still free to cancel. I cannot cancel it. Use Cancel on the dashboard.',
+  cancelPolicyWithin: () => 'That is within 72 hours of check-in, so it should now be a confirmed booking and cannot be cancelled in the system. Exceptions are handled by phone.',
+  cancelPolicyOther: () => 'Cancellation in the system is only for blocked bookings more than 72 hours before check-in.',
+  w72Note: () => 'These should already be confirmed and invoiced by the system.',
   help: () => 'I can help with room availability and rates for given dates, bookings by guest or booking ID, unpaid bookings, bookings near the 72-hour deadline, and today\'s arrivals or departures. Try: "single room 25th to 30th November".',
 };
 
@@ -145,6 +152,13 @@ const ms = {
   findNone: (x) => `Saya tidak jumpa sebarang tempahan untuk ${x}.`,
   refuseFinancial: () => 'Saya tidak boleh memberi bayaran balik, diskaun, baucar atau mengubah kadar. Keputusan itu dibuat oleh kakitangan yang mempunyai akses yang sesuai. Saya boleh menunjukkan kadar dan ketersediaan jika itu membantu.',
   refuseCancel: () => 'Saya tidak boleh membatalkan tempahan. Buka tempahan pada papan pemuka dan gunakan Cancel. Jika anda beri ID tempahan, saya boleh semak sama ada ia masih boleh dibatalkan.',
+  extEnded: (ref) => `${ref} telah pun daftar keluar, jadi tidak boleh dilanjutkan. Penginapan baharu memerlukan tempahan baharu.`,
+  unpaidMore: (v) => `...dan ${v.rest} lagi (jumlah ${v.total} belum dibayar). Tanya tentang tetamu atau ID tempahan tertentu untuk mengecilkan carian.`,
+  extPolicy: () => 'Saya tidak boleh mengubah tempahan. Gunakan Edit Room pada papan pemuka.',
+  cancelPolicyFree: () => 'Itu lebih daripada 72 jam sebelum daftar masuk, jadi masih boleh dibatalkan. Saya tidak boleh membatalkannya. Gunakan Cancel pada papan pemuka.',
+  cancelPolicyWithin: () => 'Itu berada dalam tempoh 72 jam sebelum daftar masuk, jadi ia sepatutnya sudah menjadi tempahan yang disahkan dan tidak boleh dibatalkan dalam sistem. Pengecualian dikendalikan melalui telefon.',
+  cancelPolicyOther: () => 'Pembatalan dalam sistem hanya untuk tempahan blocked lebih daripada 72 jam sebelum daftar masuk.',
+  w72Note: () => 'Tempahan ini sepatutnya sudah disahkan dan diinvois oleh sistem.',
   help: () => 'Saya boleh membantu dengan ketersediaan dan kadar bilik untuk tarikh tertentu, tempahan mengikut tetamu atau ID tempahan, tempahan belum dibayar, tempahan yang menghampiri tarikh akhir 72 jam, serta ketibaan atau daftar keluar hari ini. Cuba: "bilik single 25 hingga 30 November".',
 };
 
@@ -199,6 +213,13 @@ const zh = {
   findNone: (x) => `找不到 ${x} 的任何预订。`,
   refuseFinancial: () => '我无法办理退款、折扣、优惠券或更改价格。这些决定须由有相应权限的员工作出。我可以帮您查看价格和空房情况。',
   refuseCancel: () => '我无法取消预订。请在面板上打开该预订并使用 Cancel。如果您提供预订编号，我可以查看它是否仍可取消。',
+  extEnded: (ref) => `${ref} 已经退房，因此无法延长。如需再次入住，请新建预订。`,
+  unpaidMore: (v) => `……另有 ${v.rest} 条（共 ${v.total} 条未付款）。可按客人姓名或预订编号查询。`,
+  extPolicy: () => '我无法更改预订，请在面板上使用 Edit Room。',
+  cancelPolicyFree: () => '距入住超过72小时，因此仍可取消。我无法取消它，请在面板上使用 Cancel。',
+  cancelPolicyWithin: () => '距入住已不足72小时，应已转为确认预订，系统内无法取消。例外情况需通过电话处理。',
+  cancelPolicyOther: () => '系统内取消仅适用于距入住超过72小时的 blocked 预订。',
+  w72Note: () => '这些预订应已由系统确认并开具发票。',
   help: () => '我可以协助查询指定日期的空房和价格、按客人姓名或预订编号查找预订、未付款预订、接近72小时期限的预订，以及今日抵达或退房的客人。试试：“单人房 11月25日至11月30日”。',
 };
 

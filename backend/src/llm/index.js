@@ -4,6 +4,7 @@
 // Strict mode (LLM_STRICT=1, or the compare runner): a failure is returned as intent "unknown", so failures are
 // MEASURED instead of being hidden by the rules fallback.
 import { buildPrompt, parseModelJson, emptyRequest } from './prompt.js';
+import { buildWriterPrompt, parseWriterJson } from './writer.js';
 import { callGemini, callOpenAI, callAnthropic, callLocal, temperatureDropped } from './providers.js';
 
 const CALLERS = { gemini: callGemini, openai: callOpenAI, anthropic: callAnthropic, local: callLocal };
@@ -37,4 +38,31 @@ export async function understandWithLlm(message, roomTypeNames, todayIso) {
   if (req) return { ...req, source: a.provider };
   if (a.strict) return { ...emptyRequest(), source: `${a.provider}_failed` };
   return null;
+}
+
+// ---- The "writing" step (option B) -----------------------------------------------------------------------------
+// On only when LLM_WRITE_REPLIES=1 and a model is in use (never in rules mode). One extra model call per data reply.
+// Returns { ok: true, text } or { ok: false, reason }. It never throws, so chat.js can always fall back to the template.
+let lastWrite = null;
+export const getLastWrite = () => lastWrite;                 // timing/tokens/error of the most recent writing call
+export const writerEnabled = () => process.env.LLM_WRITE_REPLIES === '1' && active().provider !== 'rules';
+
+export async function writeWithLlm({ lang, question, task, facts }) {
+  const a = active();
+  const call = CALLERS[a.provider];
+  if (!call) return { ok: false, reason: 'no_provider' };
+  const model = a.model || process.env[ENV_MODEL[a.provider]] || null;
+  const info = { provider: a.provider, model, ms: 0, inTok: 0, outTok: 0, retries: 0, error: null };
+  const t0 = performance.now();
+  let text = null;
+  try {
+    const out = await call(buildWriterPrompt({ lang, question, task, facts }), { model: a.model });
+    info.inTok = out.inTok; info.outTok = out.outTok; info.retries = out.retries;
+    text = parseWriterJson(out.text);
+    if (!text) info.error = 'unusable_output';
+  } catch (e) { info.error = e.message.slice(0, 300); }
+  info.ms = Math.round(performance.now() - t0);
+  lastWrite = info;
+  if (info.error) console.warn('LLM writing failed, using template:', info.error);
+  return text ? { ok: true, text } : { ok: false, reason: info.error === 'unusable_output' ? 'unusable_output' : 'error' };
 }

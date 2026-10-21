@@ -73,7 +73,7 @@ large set come from independent SQL. These tests run the rules parser unless `LL
 1. **Understand** (`parse.js` rules, or an LLM from `src/llm/`): message -> structured request (intent, room type, dates, language...).
 2. **Validate**: room type exists, dates make sense, language is one of the three supported.
 3. **Tools** (`inventory.js`): fixed read-only database queries. The model never writes SQL.
-4. **Reply built by code from the results** (`chat.js`, templates in `i18n.js`), so it cannot contain an invented price or date.
+4. **Reply** (`chat.js`): the facts always come from the database. By default the sentences come from fixed templates in `i18n.js`. With `LLM_WRITE_REPLIES=1` the model writes the data sentences instead (see "Reply writing"), and refusals, errors, lists and policy notes stay fixed text.
 5. **Action**: a `highlight_planner` instruction the front end applies to the planner.
 6. Every exchange is written to `ai_audit_log`.
 
@@ -87,6 +87,22 @@ Only English (`en`), Malay (`ms`) and Mandarin (`zh`, Simplified) are supported.
 - Database content (room type names, booking IDs, guest names) is shown as stored, never translated.
 - The Malay and Mandarin wording was drafted by AI and should be read by someone who knows the language.
 - The rules parser (no API) still understands English only, but replies in the detected language.
+
+## Reply writing (optional)
+
+Set `LLM_WRITE_REPLIES=1` (with `LLM_PROVIDER` set to a model) to let the model write the data sentences of an answer
+in the staff member's language. It costs one extra model call per answer.
+
+- The model only sees facts the code has just read from the database.
+- Before a reply is shown, `checkReply()` in `backend/src/llm/writer.js` verifies that every number, date and booking ID
+  in the model's text also appears in those facts, and rejects a few forbidden promises (booking, cancelling, discounts, refunds).
+  If anything is off, or the call fails, the fixed template reply is shown instead.
+- Lists (arrivals, unpaid, 72-hour lists, booking lookups, room type lists) are printed by code. The model only writes the sentence above them.
+- Always fixed text: refusals, error and "not understood" messages, the "I cannot book/cancel/change" notes, and the unsupported-language note.
+- The check covers digits and IDs only. It does not judge meaning. Written-out numbers (for example "三间") are not caught,
+  which is why the prompt asks for digits. Set `LLM_WRITE_REPLIES=0` to go back to templates.
+- Each audit-log row records `writer` inside `parsed_request`: `model`, `template`, or `fallback:<reason>`.
+- If you change the writing prompt or the checker, bump `WRITER_PROMPT_VERSION`.
 
 ## Using an LLM for understanding
 

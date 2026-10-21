@@ -1,6 +1,6 @@
 // ONE shared prompt and ONE shared output checker for every model, so the comparison is fair.
 // If you change the prompt, bump PROMPT_VERSION and re-run every model (never tune it for just one).
-export const PROMPT_VERSION = 'v2';
+export const PROMPT_VERSION = 'v3';
 export const REQUEST_LANGS = ['en', 'ms', 'zh', 'other'];
 export const INTENTS = ['availability', 'extend_check', 'cancel_check', 'within_72h', 'cancellable', 'unpaid', 'arrivals', 'departures', 'room_occupant', 'booking_lookup', 'refuse_financial', 'refuse_cancel', 'unknown'];
 
@@ -21,6 +21,7 @@ wants_booking: true if the user wants to book, reserve or block a room
 lang: the language of the message: en (English), ms (Malay), zh (Chinese/Mandarin) or other. For mixed language use the dominant one.
 Use refuse_financial for refunds, discounts, vouchers or rate changes. Use refuse_cancel for cancel requests without a booking ref.
 The message may be in English, Malay or Mandarin. Understand it in any of these, but always return the values above in English: dates as YYYY-MM-DD (for example "5hb November" and "11月5日" are valid dates), room_type exactly as written in the list above (the user may name it in Malay or Chinese), and intent from the list. Keep guest_name as written.
+For extend_check, put the new end date in "to" and leave "from" null.
 If dates have no year, pick the next occurrence on or after today. Do not invent values. Message: """${message}"""`;
 }
 
