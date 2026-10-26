@@ -13,7 +13,7 @@ const app = express();
 app.use((req, res, next) => {                       // request id + CORS (a separate front end may call this API)
   req.id = crypto.randomUUID();
   res.set({ 'X-Request-Id': req.id, 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'Access-Control-Expose-Headers': 'X-Request-Id' });
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'Access-Control-Expose-Headers': 'X-Request-Id, X-Total-Count, X-Page, X-Page-Size, X-Total-Pages' });
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -41,6 +41,7 @@ app.get('/api/me', auth, (req, res) => res.json(A.publicUser(req.user)));
 
 // ---------- front end (apps/fds-web): cookie sign-in and /api/staff, translated onto the endpoints below ----------
 require('./frontend-compat')(app, { getDb: () => db, auth, need });
+require('./reservations')(app, { getDb: () => db, auth, need, wrap });
 require('./catalog')(app, { getDb: () => db, auth, need, wrap, validateRate: b => validateRate(b), checkCurrency: (...a) => checkCurrency(...a) });
 
 // ---------- reference data ----------
@@ -58,101 +59,6 @@ app.get('/api/dashboard', auth, need('reports.operational'), wrap(async (req, re
     (select count(*) from rooms r join room_types t using(room_type_id) join room_categories c using(category_id) where c.property_id=$1)::int total_rooms,
     (select count(*) from rate_rules rr join room_types t using(room_type_id) join room_categories c using(category_id) where c.property_id=$1 and rr.approval_status='PENDING')::int pending_rates`, [p]);
   res.json({ today: t, arrivals, departures, ...c, pending_rates: P.can(req.user, 'rates.view_all') ? c.pending_rates : null });
-}));
-
-// ---------- availability and reservations ----------
-app.get('/api/availability', auth, need('reservations.manage'), wrap(async (req, res) => res.json(await S.availability(q, prop(req), req.query))));
-
-app.post('/api/reservations', auth, need('reservations.manage'), wrap(async (req, res) => {
-  const r = await db.tx(t => S.createReservation(t, prop(req), req.body || {}, req.user.user_id));
-  res.status(201).json(r);
-}));
-app.get('/api/reservations', auth, need('reservations.manage'), wrap(async (req, res) => {
-  const params = [prop(req)], where = ['r.property_id=$1'];
-  if (req.query.status) {
-    if (!['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED'].includes(req.query.status)) throw bad('Invalid status filter.', [{ field: 'status', message: 'Must be CONFIRMED, CHECKED_IN, CHECKED_OUT or CANCELLED.' }]);
-    params.push(req.query.status); where.push(`r.status=$${params.length}`);
-  }
-  if (req.query.q) { params.push('%' + req.query.q + '%'); where.push(`(r.reservation_ref ilike $${params.length} or g.full_name ilike $${params.length})`); }
-  res.json(await q(`select r.reservation_id, r.reservation_ref, g.full_name, tp.name room_type, rm.room_number, r.check_in_date::text check_in, r.check_out_date::text check_out,
-    r.total_guests, r.status, r.payment_status, s.name source,
-    (select coalesce(sum(c.amount),0)::float8 from charges c join folios f using(folio_id) where f.reservation_id=r.reservation_id) total
-    from reservations r join guests g using(guest_id) join booking_sources s using(source_id) join reservation_rooms rr using(reservation_id)
-    join room_types tp on tp.room_type_id=rr.room_type_id left join rooms rm on rm.room_id=rr.room_id
-    where ${where.join(' and ')} order by r.check_in_date desc, r.reservation_ref limit 200`, params));
-}));
-app.get('/api/reservations/:id', auth, need('reservations.manage'), wrap(async (req, res) => res.json(await S.getReservation(q, prop(req), req.params.id))));
-
-app.patch('/api/reservations/:id', auth, need('reservations.manage'), wrap(async (req, res) => {
-  const r = await S.getReservation(q, prop(req), req.params.id);
-  if (['CANCELLED', 'CHECKED_OUT'].includes(r.status)) throw conflict(`A ${r.status.toLowerCase().replace('_', ' ')} reservation cannot be edited.`, 'INVALID_STATE');
-  const b = req.body || {};
-  await db.tx(async t => {
-    await t.q('update guests set full_name=coalesce($2,full_name), phone=coalesce($3,phone), email=coalesce($4,email) where guest_id=$1', [r.guest_id, b.full_name || null, b.phone || null, b.email || null]);
-    await t.q('update reservations set special_requests=coalesce($2,special_requests), notes=coalesce($3,notes), estimated_arrival=coalesce($4::time,estimated_arrival) where reservation_id=$1', [r.reservation_id, b.special_requests ?? null, b.notes ?? null, b.estimated_arrival || null]);
-    await S.audit(t.q, req.user.user_id, 'RESERVATION_UPDATED', 'reservations', r.reservation_id, null, b);
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
-app.post('/api/reservations/:id/cancel', auth, need('reservations.manage'), wrap(async (req, res) => {
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.status !== 'CONFIRMED') throw conflict('Only a confirmed reservation can be cancelled.', 'INVALID_STATE');
-    await t.q("update reservations set status='CANCELLED' where reservation_id=$1", [r.reservation_id]);
-    await t.q('update room_stock set reserved_rooms=reserved_rooms-1 where room_type_id=$1 and stock_date>=$2::date and stock_date<$3::date and reserved_rooms>0', [r.room_type_id, r.check_in, r.check_out]);
-    await S.audit(t.q, req.user.user_id, 'RESERVATION_CANCELLED', 'reservations', r.reservation_id, { status: 'CONFIRMED' }, { status: 'CANCELLED' });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
-app.get('/api/reservations/:id/free-rooms', auth, need('stay.operate'), wrap(async (req, res) => {
-  const r = await S.getReservation(q, prop(req), req.params.id);
-  res.json(await S.freeRooms(q, r.room_type_id, r.check_in, r.check_out, r.reservation_id, false));
-}));
-app.post('/api/reservations/:id/assign-room', auth, need('stay.operate'), wrap(async (req, res) => {
-  if (!isUuid((req.body || {}).room_id)) throw bad('Choose a room.', [{ field: 'room_id', message: 'Must be a room id (UUID).' }]);
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (!['CONFIRMED', 'CHECKED_IN'].includes(r.status)) throw conflict('Rooms can only be assigned to active reservations.', 'INVALID_STATE');
-    const ok = (await S.freeRooms(t.q, r.room_type_id, r.check_in, r.check_out, r.reservation_id, false)).find(x => x.room_id === req.body.room_id);
-    if (!ok) throw conflict('That room is not free for these dates, is blocked, or is a different room type.', 'ROOM_NOT_AVAILABLE');
-    await t.q('update reservation_rooms set room_id=$2 where reservation_room_id=$1', [r.reservation_room_id, ok.room_id]);
-    await S.audit(t.q, req.user.user_id, 'ROOM_ASSIGNED', 'reservations', r.reservation_id, { room: r.room_number || null }, { room: ok.room_number });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
-app.post('/api/reservations/:id/check-in', auth, need('stay.operate'), wrap(async (req, res) => {
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.status !== 'CONFIRMED') throw conflict('Only a confirmed reservation can be checked in.', 'INVALID_STATE');
-    let roomId = r.room_id, roomNo = r.room_number;
-    const [rm] = roomId ? await t.q('select status_id from rooms where room_id=$1', [roomId]) : [];
-    if (roomId && rm.status_id !== 1) throw conflict(`Room ${roomNo} is not available right now (cleaning, occupied or blocked). Assign another room.`, 'ROOM_NOT_AVAILABLE');
-    if (!roomId) {
-      const [free] = await S.freeRooms(t.q, r.room_type_id, r.check_in, r.check_out, r.reservation_id, true);
-      if (!free) throw conflict('No available room of this type is ready for check-in.', 'ROOM_NOT_AVAILABLE');
-      roomId = free.room_id; roomNo = free.room_number;
-      await t.q('update reservation_rooms set room_id=$2 where reservation_room_id=$1', [r.reservation_room_id, roomId]);
-    }
-    await t.q('update rooms set status_id=2 where room_id=$1', [roomId]);
-    await t.q("update reservations set status='CHECKED_IN' where reservation_id=$1", [r.reservation_id]);
-    await S.audit(t.q, req.user.user_id, 'CHECKED_IN', 'reservations', r.reservation_id, { status: 'CONFIRMED' }, { status: 'CHECKED_IN', room: roomNo });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-app.post('/api/reservations/:id/check-out', auth, need('stay.operate'), wrap(async (req, res) => {
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.status !== 'CHECKED_IN') throw conflict('Only a checked-in reservation can be checked out.', 'INVALID_STATE');
-    if (r.balance > 0.001) throw conflict(`Outstanding balance of ${r.balance.toFixed(2)}. Record payment before check-out.`, 'BALANCE_OUTSTANDING');
-    await t.q('update rooms set status_id=3 where room_id=$1', [r.room_id]);
-    await t.q("update reservations set status='CHECKED_OUT' where reservation_id=$1", [r.reservation_id]);
-    await t.q('update folios set closed_at=now() where folio_id=$1', [r.folio_id]);
-    await S.audit(t.q, req.user.user_id, 'CHECKED_OUT', 'reservations', r.reservation_id, { status: 'CHECKED_IN' }, { status: 'CHECKED_OUT' });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
 }));
 
 // ---------- folio ----------

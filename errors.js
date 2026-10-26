@@ -34,6 +34,7 @@ const CODES = {
   SOLD_OUT:            [409, 'No room of that type is left on at least one night.'],
   NO_STOCK:            [409, 'No stock is configured for every night of the stay.'],
   NO_APPROVED_RATE:    [409, 'At least one night has no approved rate.'],
+  HOLD_EXPIRED:        [409, 'The inventory hold ran out of time or was released. Search availability again.'],
   ROOM_NOT_AVAILABLE:  [409, 'The room is blocked, occupied, cleaning, overlapping another stay, or the wrong type.'],
   BALANCE_OUTSTANDING: [409, 'Check-out needs a zero balance.'],
   FOLIO_CLOSED:        [409, 'The folio is closed or the reservation is cancelled.'],

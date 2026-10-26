@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FDS Backend API
-  version: 0.5.0
+  version: 0.6.0
   description: Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.
 servers:
   - url: http://localhost:3000
@@ -892,7 +892,7 @@ paths:
     get:
       tags:
         - Reservations
-      summary: Rooms left, nightly rates and total for a stay, per room type.
+      summary: "S079: rooms left, nightly rates and total for a stay, per room type. Holds that ran out of time are given back first, and live holds count as taken."
       description: "Who: All roles. Status: implemented."
       operationId: GET_api_availability
       x-status: implemented
@@ -903,20 +903,27 @@ paths:
           schema:
             type: string
             format: date
-          description: Check-in, not in the past.
+          description: Check-in, not in the past. check_in is accepted as the same thing.
         - name: to
           in: query
           required: true
           schema:
             type: string
             format: date
-          description: Check-out, after from.
+          description: Check-out, after from, at most 90 nights. check_out is accepted as the same thing.
         - name: guests
           in: query
           required: false
           schema:
             type: integer
-          description: Default 1.
+          description: Whole number 1 to 20. Default 1.
+        - name: room_type_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Only this room type.
       responses:
         "200":
           description: Success
@@ -944,11 +951,252 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/holds:
+    post:
+      tags:
+        - Reservations
+      summary: "S080: keep one room of a type for a stay for a few minutes while the guest decides. The room counts as taken at once."
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_holds
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Hold"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE or NO_STOCK or SOLD_OUT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room_type_id:
+                  type: string
+                  format: uuid
+                check_in:
+                  type: string
+                  format: date
+                check_out:
+                  type: string
+                  format: date
+                total_guests:
+                  type: integer
+                minutes:
+                  type: integer
+              required:
+                - room_type_id
+                - check_in
+                - check_out
+                - total_guests
+  /api/holds/{id}:
+    get:
+      tags:
+        - Reservations
+      summary: "S080: the state of a hold (ACTIVE, CONFIRMED, RELEASED or EXPIRED)."
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_holds_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Hold"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags:
+        - Reservations
+      summary: "S080: release a hold and give the room back at once."
+      description: "Who: All roles. Status: implemented."
+      operationId: DELETE_api_holds_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Hold"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/holds/{id}/confirm:
+    post:
+      tags:
+        - Reservations
+      summary: "S080: turn a live hold into a reservation in one transaction. Dates, room type and guest count come from the hold. An expired hold returns HOLD_EXPIRED."
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_holds_id_confirm
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationCreated"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: HOLD_EXPIRED or INVALID_STATE or NO_APPROVED_RATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                guest:
+                  type: object
+                guest_id:
+                  type: string
+                  format: uuid
+                source_id:
+                  type: integer
+                estimated_arrival:
+                  type: string
+                  format: time
+                  example: 15:00
+                special_requests:
+                  type: string
+                notes:
+                  type: string
   /api/reservations:
     post:
       tags:
         - Reservations
-      summary: Create a reservation (also creates its folio and one ROOM charge per night).
+      summary: "S081: create a reservation for a walk-in or phone guest (any source). Also creates its folio and one ROOM charge per night, and takes one room from stock in the same transaction."
       description: "Who: All roles. Status: implemented."
       operationId: POST_api_reservations
       x-status: implemented
@@ -978,7 +1226,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "Error code: NO_APPROVED_RATE or NO_STOCK or SOLD_OUT"
+          description: "Error code: INVALID_STATE or NO_APPROVED_RATE or NO_STOCK or SOLD_OUT"
           content:
             application/json:
               schema:
@@ -1030,11 +1278,17 @@ paths:
     get:
       tags:
         - Reservations
-      summary: List reservations (newest check-in first, at most 200).
+      summary: "S082: search, filter, sort and page reservations. The body is an array; paging is in the headers X-Total-Count, X-Page, X-Page-Size and X-Total-Pages."
       description: "Who: All roles. Status: implemented."
       operationId: GET_api_reservations
       x-status: implemented
       parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Matches reference, guest name, phone, email or room number.
         - name: status
           in: query
           required: false
@@ -1045,12 +1299,86 @@ paths:
               - CHECKED_IN
               - CHECKED_OUT
               - CANCELLED
-        - name: q
+              - NO_SHOW
+        - name: payment_status
           in: query
           required: false
           schema:
             type: string
-          description: Matches reference or guest name.
+            enum:
+              - UNPAID
+              - PARTIAL
+              - PAID
+        - name: source_id
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: 1 to 6.
+        - name: room_type_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: check_in_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: check_in_to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: check_out_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: check_out_to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - check_in
+              - check_out
+              - created_at
+              - guest
+              - reference
+              - total
+          description: Default check_in.
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+          description: Default desc.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Default 1.
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: 1 to 100. Default 25.
       responses:
         "200":
           description: Success
@@ -1127,9 +1455,93 @@ paths:
     patch:
       tags:
         - Reservations
-      summary: Edit guest contact details, notes, requests or arrival time.
+      summary: "S083: edit guest details, notes and arrival time; change dates, room type or guest count of a CONFIRMED reservation (stock moves and room charges are priced again); extend the check-out of a CHECKED_IN stay (only the new nights are priced)."
       description: "Who: All roles. Status: implemented."
       operationId: PATCH_api_reservations_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE or NO_APPROVED_RATE or NO_STOCK or ROOM_NOT_AVAILABLE or SOLD_OUT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                special_requests:
+                  type: string
+                notes:
+                  type: string
+                estimated_arrival:
+                  type: string
+                  format: time
+                  example: 15:00
+                check_in:
+                  type: string
+                  format: date
+                check_out:
+                  type: string
+                  format: date
+                room_type_id:
+                  type: string
+                  format: uuid
+                total_guests:
+                  type: integer
+  /api/reservations/{id}/cancel:
+    post:
+      tags:
+        - Reservations
+      summary: "S084: cancel a CONFIRMED reservation. The remaining nights (today and later) go back to stock and any assigned room is freed."
+      description: "Who: All roles. Status: implemented."
+      operationId: POST_api_reservations_id_cancel
       x-status: implemented
       parameters:
         - name: id
@@ -1182,27 +1594,15 @@ paths:
             schema:
               type: object
               properties:
-                full_name:
+                remark:
                   type: string
-                phone:
-                  type: string
-                email:
-                  type: string
-                special_requests:
-                  type: string
-                notes:
-                  type: string
-                estimated_arrival:
-                  type: string
-                  format: time
-                  example: 15:00
-  /api/reservations/{id}/cancel:
+  /api/reservations/{id}/no-show:
     post:
       tags:
         - Reservations
-      summary: Cancel a CONFIRMED reservation and release its stock.
+      summary: "S085: mark a CONFIRMED reservation as NO_SHOW on or after its arrival date. A remark is mandatory. The remaining nights go back to stock and the action is audited."
       description: "Who: All roles. Status: implemented."
-      operationId: POST_api_reservations_id_cancel
+      operationId: POST_api_reservations_id_no_show
       x-status: implemented
       parameters:
         - name: id
@@ -1248,6 +1648,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remark:
+                  type: string
+              required:
+                - remark
   /api/reservations/{id}/free-rooms:
     get:
       tags:
@@ -1364,7 +1775,7 @@ paths:
     post:
       tags:
         - Stay
-      summary: Check in. Uses the assigned room or picks a free Available one. The room becomes OCCUPIED.
+      summary: "S086: check in. Needs a CONFIRMED reservation on or after its arrival date and before its check-out date, and a room that is Available and not used by another stay (the given room_id, the assigned room, or the first free one). The room becomes OCCUPIED."
       description: "Who: All roles. Status: implemented."
       operationId: POST_api_reservations_id_check_in
       x-status: implemented
@@ -1412,11 +1823,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room_id:
+                  type: string
+                  format: uuid
   /api/reservations/{id}/check-out:
     post:
       tags:
         - Stay
-      summary: Check out. Needs a zero balance. The room becomes CLEANING and the folio closes.
+      summary: "S087: check out. Needs a zero balance. The room becomes CLEANING (dirty), the folio closes, and the nights of an early departure go back to stock."
       description: "Who: All roles. Status: implemented."
       operationId: POST_api_reservations_id_check_out
       x-status: implemented
@@ -3690,6 +4111,7 @@ components:
             - CHECKED_IN
             - CHECKED_OUT
             - CANCELLED
+            - NO_SHOW
         payment_status:
           type: string
           enum:
@@ -3700,6 +4122,12 @@ components:
           type: string
         total:
           type: number
+        phone:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
     DashboardRow:
       type: object
       properties:
@@ -3728,6 +4156,7 @@ components:
             - CHECKED_IN
             - CHECKED_OUT
             - CANCELLED
+            - NO_SHOW
         payment_status:
           type: string
           enum:
@@ -3784,6 +4213,8 @@ components:
         min_nights:
           type: integer
         nights:
+          type: integer
+        rooms_total:
           type: integer
         rooms_left:
           type: integer
@@ -3883,6 +4314,7 @@ components:
             - CHECKED_IN
             - CHECKED_OUT
             - CANCELLED
+            - NO_SHOW
         payment_status:
           type: string
           enum:
@@ -3898,6 +4330,21 @@ components:
         created_at:
           type: string
           format: date-time
+        status_remark:
+          type: string
+          nullable: true
+        status_changed_at:
+          type: string
+          format: date-time
+          nullable: true
+        checked_in_at:
+          type: string
+          format: date-time
+          nullable: true
+        checked_out_at:
+          type: string
+          format: date-time
+          nullable: true
         guest_id:
           type: string
           format: uuid
@@ -3958,6 +4405,39 @@ components:
           type: number
         balance:
           type: number
+    Hold:
+      type: object
+      properties:
+        hold_id:
+          type: string
+          format: uuid
+        room_type_id:
+          type: string
+          format: uuid
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        total_guests:
+          type: integer
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - CONFIRMED
+            - RELEASED
+            - EXPIRED
+        expires_at:
+          type: string
+          format: date-time
+        reservation_id:
+          type: string
+          format: uuid
+          nullable: true
+        expired:
+          type: boolean
     FreeRoom:
       type: object
       properties:
@@ -4375,6 +4855,7 @@ components:
                 - SOLD_OUT
                 - NO_STOCK
                 - NO_APPROVED_RATE
+                - HOLD_EXPIRED
                 - ROOM_NOT_AVAILABLE
                 - BALANCE_OUTSTANDING
                 - FOLIO_CLOSED

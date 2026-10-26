@@ -1,10 +1,10 @@
 # FDS API Contract (S055)
 
-Version 0.5, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
+Version 0.6, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
 
 This file is generated from `docs/contract.js` (the same file produces `openapi.yaml`), and a test checks that every endpoint marked *implemented* really exists in the server and that none is missing here.
 
-**Status:** all 64 endpoints run today.
+**Status:** all 69 endpoints run today.
 
 ## 1. Conventions
 
@@ -15,7 +15,7 @@ This file is generated from `docs/contract.js` (the same file produces `openapi.
 | Authentication | `Authorization: Bearer <token>` on every call except those marked Public. |
 | Versioning | None in the path. This file's version changes when a field is removed or renamed. Adding fields is not a breaking change, so ignore fields you do not know. |
 | Success body | The resource itself, or an array. No wrapper object. Creating something returns 201; everything else 200. |
-| Lists | A plain array, at most 200 rows, newest first. There is no pagination yet; when it is added it will use `limit` and `offset` query parameters without changing existing responses. |
+| Lists | A plain array, newest first. Most lists return at most 200 rows. `GET /api/reservations` is paged (S082): `page` and `page_size` query parameters, and the headers `X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Total-Pages`. The body stays a plain array. |
 | Empty values | A missing optional value is `null`, never an empty string. Send `null` or leave the field out. |
 | Cross-origin | CORS is open (`*`) so a front end on another port can call the API. |
 | Request id | Every response has an `X-Request-Id` header. Errors repeat it in the body. Quote it when reporting a problem. |
@@ -138,6 +138,7 @@ Every error, from every endpoint, has this shape and nothing else:
 | `SOLD_OUT` | 409 | No room of that type is left on at least one night. |
 | `NO_STOCK` | 409 | No stock is configured for every night of the stay. |
 | `NO_APPROVED_RATE` | 409 | At least one night has no approved rate. |
+| `HOLD_EXPIRED` | 409 | The inventory hold ran out of time or was released. Search availability again. |
 | `ROOM_NOT_AVAILABLE` | 409 | The room is blocked, occupied, cleaning, overlapping another stay, or the wrong type. |
 | `BALANCE_OUTSTANDING` | 409 | Check-out needs a zero balance. |
 | `FOLIO_CLOSED` | 409 | The folio is closed or the reservation is cancelled. |
@@ -285,22 +286,53 @@ POST /api/reservations          (Authorization: Bearer q3...)
 
 | Endpoint | Who | Status | What it does |
 |---|---|---|---|
-| `GET /api/availability` | All roles | Implemented | Rooms left, nightly rates and total for a stay, per room type. |
-| `POST /api/reservations` | All roles | Implemented | Create a reservation (also creates its folio and one ROOM charge per night). |
-| `GET /api/reservations` | All roles | Implemented | List reservations (newest check-in first, at most 200). |
+| `GET /api/availability` | All roles | Implemented | S079: rooms left, nightly rates and total for a stay, per room type. Holds that ran out of time are given back first, and live holds count as taken. |
+| `POST /api/holds` | All roles | Implemented | S080: keep one room of a type for a stay for a few minutes while the guest decides. The room counts as taken at once. |
+| `GET /api/holds/{id}` | All roles | Implemented | S080: the state of a hold (ACTIVE, CONFIRMED, RELEASED or EXPIRED). |
+| `DELETE /api/holds/{id}` | All roles | Implemented | S080: release a hold and give the room back at once. |
+| `POST /api/holds/{id}/confirm` | All roles | Implemented | S080: turn a live hold into a reservation in one transaction. Dates, room type and guest count come from the hold. An expired hold returns HOLD_EXPIRED. |
+| `POST /api/reservations` | All roles | Implemented | S081: create a reservation for a walk-in or phone guest (any source). Also creates its folio and one ROOM charge per night, and takes one room from stock in the same transaction. |
+| `GET /api/reservations` | All roles | Implemented | S082: search, filter, sort and page reservations. The body is an array; paging is in the headers X-Total-Count, X-Page, X-Page-Size and X-Total-Pages. |
 | `GET /api/reservations/{id}` | All roles | Implemented | One reservation with its folio: charges, payments and balance. |
-| `PATCH /api/reservations/{id}` | All roles | Implemented | Edit guest contact details, notes, requests or arrival time. |
-| `POST /api/reservations/{id}/cancel` | All roles | Implemented | Cancel a CONFIRMED reservation and release its stock. |
+| `PATCH /api/reservations/{id}` | All roles | Implemented | S083: edit guest details, notes and arrival time; change dates, room type or guest count of a CONFIRMED reservation (stock moves and room charges are priced again); extend the check-out of a CHECKED_IN stay (only the new nights are priced). |
+| `POST /api/reservations/{id}/cancel` | All roles | Implemented | S084: cancel a CONFIRMED reservation. The remaining nights (today and later) go back to stock and any assigned room is freed. |
+| `POST /api/reservations/{id}/no-show` | All roles | Implemented | S085: mark a CONFIRMED reservation as NO_SHOW on or after its arrival date. A remark is mandatory. The remaining nights go back to stock and the action is audited. |
 
 **`GET /api/availability`** returns 200 `AvailabilityItem[]`. Errors: `VALIDATION_ERROR`.
 
 | Query parameters | Type | Required | Notes |
 |---|---|---|---|
-| `from` | date | Yes | Check-in, not in the past. |
-| `to` | date | Yes | Check-out, after from. |
-| `guests` | int | No | Default 1. |
+| `from` | date | Yes | Check-in, not in the past. check_in is accepted as the same thing. |
+| `to` | date | Yes | Check-out, after from, at most 90 nights. check_out is accepted as the same thing. |
+| `guests` | int | No | Whole number 1 to 20. Default 1. |
+| `room_type_id` | UUID | No | Only this room type. |
 
-**`POST /api/reservations`** returns 201 `ReservationCreated`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `NO_APPROVED_RATE`, `NO_STOCK`, `SOLD_OUT`.
+**`POST /api/holds`** returns 201 `Hold`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`, `NO_STOCK`, `SOLD_OUT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `room_type_id` | UUID | Yes |  |
+| `check_in` | date | Yes |  |
+| `check_out` | date | Yes |  |
+| `total_guests` | int | Yes |  |
+| `minutes` | int | No | 1 to 60. Default 15. |
+
+**`GET /api/holds/{id}`** returns 200 `Hold`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
+
+**`DELETE /api/holds/{id}`** returns 200 `Hold`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
+
+**`POST /api/holds/{id}/confirm`** returns 201 `ReservationCreated`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `HOLD_EXPIRED`, `INVALID_STATE`, `NO_APPROVED_RATE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `guest` | object | No | New guest: full_name, phone, email, nationality, id_passport_no, address. full_name is required. |
+| `guest_id` | UUID | No | Use an existing guest instead of guest. |
+| `source_id` | int | No | From GET /api/sources. Default 1. |
+| `estimated_arrival` | time | No |  |
+| `special_requests` | string | No |  |
+| `notes` | string | No |  |
+
+**`POST /api/reservations`** returns 201 `ReservationCreated`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`, `NO_APPROVED_RATE`, `NO_STOCK`, `SOLD_OUT`.
 
 | Body fields | Type | Required | Notes |
 |---|---|---|---|
@@ -310,7 +342,7 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `check_in` | date | Yes |  |
 | `check_out` | date | Yes | Exclusive: the night of this date is not booked. |
 | `total_guests` | int | Yes |  |
-| `source_id` | int | No | From GET /api/sources. Default 1. |
+| `source_id` | int | No | From GET /api/sources, 1 to 6. Default 1 (Walk-in); 2 is Phone. |
 | `estimated_arrival` | time | No |  |
 | `special_requests` | string | No |  |
 | `notes` | string | No |  |
@@ -319,12 +351,23 @@ POST /api/reservations          (Authorization: Bearer q3...)
 
 | Query parameters | Type | Required | Notes |
 |---|---|---|---|
-| `status` | one of CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED | No |  |
-| `q` | string | No | Matches reference or guest name. |
+| `q` | string | No | Matches reference, guest name, phone, email or room number. |
+| `status` | one of CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED, NO_SHOW | No |  |
+| `payment_status` | one of UNPAID, PARTIAL, PAID | No |  |
+| `source_id` | int | No | 1 to 6. |
+| `room_type_id` | UUID | No |  |
+| `check_in_from` | date | No |  |
+| `check_in_to` | date | No |  |
+| `check_out_from` | date | No |  |
+| `check_out_to` | date | No |  |
+| `sort` | one of check_in, check_out, created_at, guest, reference, total | No | Default check_in. |
+| `order` | one of asc, desc | No | Default desc. |
+| `page` | int | No | Default 1. |
+| `page_size` | int | No | 1 to 100. Default 25. |
 
 **`GET /api/reservations/{id}`** returns 200 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
 
-**`PATCH /api/reservations/{id}`** returns 200 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
+**`PATCH /api/reservations/{id}`** returns 200 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`, `NO_APPROVED_RATE`, `NO_STOCK`, `ROOM_NOT_AVAILABLE`, `SOLD_OUT`.
 
 | Body fields | Type | Required | Notes |
 |---|---|---|---|
@@ -334,8 +377,22 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `special_requests` | string | No |  |
 | `notes` | string | No |  |
 | `estimated_arrival` | time | No |  |
+| `check_in` | date | No |  |
+| `check_out` | date | No |  |
+| `room_type_id` | UUID | No |  |
+| `total_guests` | int | No |  |
 
 **`POST /api/reservations/{id}/cancel`** returns 200 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `remark` | string | No | At most 300 characters. |
+
+**`POST /api/reservations/{id}/no-show`** returns 200 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `remark` | string | Yes | Required, at most 300 characters. |
 
 ### Stay
 
@@ -343,8 +400,8 @@ POST /api/reservations          (Authorization: Bearer q3...)
 |---|---|---|---|
 | `GET /api/reservations/{id}/free-rooms` | All roles | Implemented | Rooms of the booked type that are free for the stay. |
 | `POST /api/reservations/{id}/assign-room` | All roles | Implemented | Assign a physical room. |
-| `POST /api/reservations/{id}/check-in` | All roles | Implemented | Check in. Uses the assigned room or picks a free Available one. The room becomes OCCUPIED. |
-| `POST /api/reservations/{id}/check-out` | All roles | Implemented | Check out. Needs a zero balance. The room becomes CLEANING and the folio closes. |
+| `POST /api/reservations/{id}/check-in` | All roles | Implemented | S086: check in. Needs a CONFIRMED reservation on or after its arrival date and before its check-out date, and a room that is Available and not used by another stay (the given room_id, the assigned room, or the first free one). The room becomes OCCUPIED. |
+| `POST /api/reservations/{id}/check-out` | All roles | Implemented | S087: check out. Needs a zero balance. The room becomes CLEANING (dirty), the folio closes, and the nights of an early departure go back to stock. |
 
 **`GET /api/reservations/{id}/free-rooms`** returns 200 `FreeRoom[]`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
 
@@ -355,6 +412,10 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `room_id` | UUID | Yes |  |
 
 **`POST /api/reservations/{id}/check-in`** returns 200 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`, `ROOM_NOT_AVAILABLE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `room_id` | UUID | No | Optional: choose the room at check-in. |
 
 **`POST /api/reservations/{id}/check-out`** returns 200 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `BALANCE_OUTSTANDING`, `INVALID_STATE`.
 
@@ -610,7 +671,7 @@ Please confirm or change these in review; each one is easy to change before the 
 4. **Audit log** is visible to Administrator and Manager only (the SRS matrix has no audit row).
 5. **Rate precedence** (FR-17 is "to be confirmed"): higher `priority` wins; on a tie Specific Date, then Date Range, then Selected Day, then Base. Date Range includes both end dates.
 6. **Changing an approved rate** (S068): the change is a new PENDING rate (`POST /api/rates/{id}/revise`). The approved rate stays in force until the change is approved and its `effective_from` night arrives (default: the day it is approved). A second approved Base Rate created the old way is still refused (`BASE_RATE_EXISTS`). Existing reservations keep the price recorded when they were made.
-7. **No pagination yet**, lists return at most 200 rows.
+7. **Pagination:** only `GET /api/reservations` is paged (default 25 rows, at most 100). Other lists return at most 200 rows.
 8. **Statuses** (`CONFIRMED`, `CHECKED_IN`, `CHECKED_OUT`, `CANCELLED`; `UNPAID`, `PARTIAL`, `PAID`) come from the functional requirements; the SRS does not list them.
 9. **The web app's wording differs:** its Staff screen says managers can manage managers, and offers status "Pending Approval". This server follows the SRS reading in item 3 (a Manager manages Front Desk accounts only) and has no pending state; both are refused with a clear message. A changed email address is also refused for now.
 10. **Room types need approval before they are sold** (S067): a new room type is submitted with its rates, stays PENDING, and one approval makes the type and its pending rates live. Front Desk sees approved types only. Editing details of a room type takes effect at once; only rates need approval. The SRS only names Pending and Approved, so there is no "Rejected": a pending item is withdrawn instead.
@@ -618,6 +679,10 @@ Please confirm or change these in review; each one is easy to change before the 
 12. **Rate ties** (S066): precedence is item 5. When a new rule has the same type and priority as an approved rule on an overlapping night, the response carries a `PRIORITY_TIE` warning, and the preview lists tied nights. The rule is still created.
 13. **Add-ons** (S069) are not an SRS entity; they are modelled as their own list with their own approval, separate from room types. A new price on an approved add-on waits as `pending_unit_price`. A charge from an add-on stores the price of that moment. Quantity defaults to 1 per stay, the number of nights per night, or the number of guests per guest.
 14. **Rooms** (S062): room numbers are unique across the system, ignoring upper/lower case (the system serves one property). Floor is -5 to 200. A room's type cannot change while the room is assigned to a confirmed or in-house reservation, and a room that has been used for a stay cannot be deleted. Adding a room does not change room stock.
+15. **Holds** (S080): a hold keeps one room of a type for a stay for 15 minutes by default (1 to 60 allowed) and counts in `room_stock.reserved_rooms` like a booking. A hold that ran out of time is given back the next time anyone searches availability or touches holds; the server does not need a timer. Confirming an expired hold returns `HOLD_EXPIRED`.
+16. **Changing a CONFIRMED reservation** (S083): the new stay is priced again with the rates approved today (so the total can change), old ROOM charges are replaced and add-on and additional charges stay. Changing the room type clears the assigned room. After check-in only a later check-out and guest details can change; shortening a stay is done by checking out early.
+17. **Cancel and No-Show** (S084, S085): only a CONFIRMED reservation can be cancelled or marked No-Show. The SRS gives no cancellation fee, deadline or refund rule, so none is applied; payments already taken are left as they are for staff to handle. A No-Show cannot be recorded before the arrival date. Nights before today are never returned to stock.
+18. **Check-in** (S086) is refused before the arrival date and on or after the check-out date. **Check-out** (S087) needs a zero balance and returns the unused nights to stock when the guest leaves early.
 
 ## 10. Change log
 
@@ -627,3 +692,4 @@ Please confirm or change these in review; each one is easy to change before the 
 | 0.3 | S056 and S058 built: the 11 planned endpoints (sessions, password rules and change, staff accounts) are now implemented. No field removed or renamed. |
 | 0.4 | Added the web app endpoints (section 4a) and `phone` on staff accounts (migration 003). Nothing removed or renamed. |
 | 0.5 | M09 (S060 to S069): room categories, room type details and approval, rooms with floors, rate validation, rate changes that wait for approval, price preview, add-ons (migration 004). New fields on existing responses: `RoomType` (category_id, photos, approval_status), `Room` (floor, room_type_id), `Rate` (room_type_id, currency_code, supersedes_id, effective_from, valid_until, in_force), `RateCreated.warnings`, charge type `ADD_ON`. Nothing removed or renamed. |
+| 0.6 | M11 (S079 to S087): holds (`/api/holds`), reservation search with filters, sorting and paging, edits of dates, room type and guests, extensions, No-Show (`POST /api/reservations/{id}/no-show`), status NO_SHOW, error code `HOLD_EXPIRED`, check-in precondition on the arrival date, optional `room_id` on check-in (migration 005). New fields: `AvailabilityItem.rooms_total`, `ReservationRow` (phone, created_at), `ReservationDetail` (status_remark, status_changed_at, checked_in_at, checked_out_at). Check-in before the arrival date used to work and is now refused. |

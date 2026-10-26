@@ -52,7 +52,7 @@ function openapi() {
   comps.Error = { type: 'object', required: ['error'], properties: { error: { type: 'object', required: ['code', 'message', 'request_id'], properties: {
     code: { type: 'string', enum: Object.keys(CODES) }, message: { type: 'string' }, request_id: { type: 'string', format: 'uuid' },
     fields: { type: 'array', description: 'Present for VALIDATION_ERROR and some conflicts.', items: { type: 'object', required: ['field', 'message'], properties: { field: { type: 'string' }, message: { type: 'string' } } } } } } } };
-  return { openapi: '3.0.3', info: { title: 'FDS Backend API', version: '0.5.0', description: 'Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.' },
+  return { openapi: '3.0.3', info: { title: 'FDS Backend API', version: '0.6.0', description: 'Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.' },
     servers: [{ url: 'http://localhost:3000' }], security: [{ bearerAuth: [] }], tags: [...new Set(endpoints.map(e => e.tag))].map(name => ({ name })),
     paths, components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'Token from POST /api/login' } }, schemas: comps } };
 }
@@ -74,7 +74,7 @@ function markdown() {
   const w = s => L.push(s);
   w(`# FDS API Contract (S055)
 
-Version 0.5, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
+Version 0.6, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
 
 This file is generated from \`docs/contract.js\` (the same file produces \`openapi.yaml\`), and a test checks that every endpoint marked *implemented* really exists in the server and that none is missing here.
 
@@ -89,7 +89,7 @@ This file is generated from \`docs/contract.js\` (the same file produces \`opena
 | Authentication | \`Authorization: Bearer <token>\` on every call except those marked Public. |
 | Versioning | None in the path. This file's version changes when a field is removed or renamed. Adding fields is not a breaking change, so ignore fields you do not know. |
 | Success body | The resource itself, or an array. No wrapper object. Creating something returns 201; everything else 200. |
-| Lists | A plain array, at most 200 rows, newest first. There is no pagination yet; when it is added it will use \`limit\` and \`offset\` query parameters without changing existing responses. |
+| Lists | A plain array, newest first. Most lists return at most 200 rows. \`GET /api/reservations\` is paged (S082): \`page\` and \`page_size\` query parameters, and the headers \`X-Total-Count\`, \`X-Page\`, \`X-Page-Size\`, \`X-Total-Pages\`. The body stays a plain array. |
 | Empty values | A missing optional value is \`null\`, never an empty string. Send \`null\` or leave the field out. |
 | Cross-origin | CORS is open (\`*\`) so a front end on another port can call the API. |
 | Request id | Every response has an \`X-Request-Id\` header. Errors repeat it in the body. Quote it when reporting a problem. |
@@ -238,7 +238,7 @@ Please confirm or change these in review; each one is easy to change before the 
 4. **Audit log** is visible to Administrator and Manager only (the SRS matrix has no audit row).
 5. **Rate precedence** (FR-17 is "to be confirmed"): higher \`priority\` wins; on a tie Specific Date, then Date Range, then Selected Day, then Base. Date Range includes both end dates.
 6. **Changing an approved rate** (S068): the change is a new PENDING rate (\`POST /api/rates/{id}/revise\`). The approved rate stays in force until the change is approved and its \`effective_from\` night arrives (default: the day it is approved). A second approved Base Rate created the old way is still refused (\`BASE_RATE_EXISTS\`). Existing reservations keep the price recorded when they were made.
-7. **No pagination yet**, lists return at most 200 rows.
+7. **Pagination:** only \`GET /api/reservations\` is paged (default 25 rows, at most 100). Other lists return at most 200 rows.
 8. **Statuses** (\`CONFIRMED\`, \`CHECKED_IN\`, \`CHECKED_OUT\`, \`CANCELLED\`; \`UNPAID\`, \`PARTIAL\`, \`PAID\`) come from the functional requirements; the SRS does not list them.
 9. **The web app's wording differs:** its Staff screen says managers can manage managers, and offers status "Pending Approval". This server follows the SRS reading in item 3 (a Manager manages Front Desk accounts only) and has no pending state; both are refused with a clear message. A changed email address is also refused for now.
 10. **Room types need approval before they are sold** (S067): a new room type is submitted with its rates, stays PENDING, and one approval makes the type and its pending rates live. Front Desk sees approved types only. Editing details of a room type takes effect at once; only rates need approval. The SRS only names Pending and Approved, so there is no "Rejected": a pending item is withdrawn instead.
@@ -246,6 +246,10 @@ Please confirm or change these in review; each one is easy to change before the 
 12. **Rate ties** (S066): precedence is item 5. When a new rule has the same type and priority as an approved rule on an overlapping night, the response carries a \`PRIORITY_TIE\` warning, and the preview lists tied nights. The rule is still created.
 13. **Add-ons** (S069) are not an SRS entity; they are modelled as their own list with their own approval, separate from room types. A new price on an approved add-on waits as \`pending_unit_price\`. A charge from an add-on stores the price of that moment. Quantity defaults to 1 per stay, the number of nights per night, or the number of guests per guest.
 14. **Rooms** (S062): room numbers are unique across the system, ignoring upper/lower case (the system serves one property). Floor is -5 to 200. A room's type cannot change while the room is assigned to a confirmed or in-house reservation, and a room that has been used for a stay cannot be deleted. Adding a room does not change room stock.
+15. **Holds** (S080): a hold keeps one room of a type for a stay for 15 minutes by default (1 to 60 allowed) and counts in \`room_stock.reserved_rooms\` like a booking. A hold that ran out of time is given back the next time anyone searches availability or touches holds; the server does not need a timer. Confirming an expired hold returns \`HOLD_EXPIRED\`.
+16. **Changing a CONFIRMED reservation** (S083): the new stay is priced again with the rates approved today (so the total can change), old ROOM charges are replaced and add-on and additional charges stay. Changing the room type clears the assigned room. After check-in only a later check-out and guest details can change; shortening a stay is done by checking out early.
+17. **Cancel and No-Show** (S084, S085): only a CONFIRMED reservation can be cancelled or marked No-Show. The SRS gives no cancellation fee, deadline or refund rule, so none is applied; payments already taken are left as they are for staff to handle. A No-Show cannot be recorded before the arrival date. Nights before today are never returned to stock.
+18. **Check-in** (S086) is refused before the arrival date and on or after the check-out date. **Check-out** (S087) needs a zero balance and returns the unused nights to stock when the guest leaves early.
 
 ## 10. Change log
 
@@ -255,6 +259,7 @@ Please confirm or change these in review; each one is easy to change before the 
 | 0.3 | S056 and S058 built: the 11 planned endpoints (sessions, password rules and change, staff accounts) are now implemented. No field removed or renamed. |
 | 0.4 | Added the web app endpoints (section 4a) and \`phone\` on staff accounts (migration 003). Nothing removed or renamed. |
 | 0.5 | M09 (S060 to S069): room categories, room type details and approval, rooms with floors, rate validation, rate changes that wait for approval, price preview, add-ons (migration 004). New fields on existing responses: \`RoomType\` (category_id, photos, approval_status), \`Room\` (floor, room_type_id), \`Rate\` (room_type_id, currency_code, supersedes_id, effective_from, valid_until, in_force), \`RateCreated.warnings\`, charge type \`ADD_ON\`. Nothing removed or renamed. |
+| 0.6 | M11 (S079 to S087): holds (\`/api/holds\`), reservation search with filters, sorting and paging, edits of dates, room type and guests, extensions, No-Show (\`POST /api/reservations/{id}/no-show\`), status NO_SHOW, error code \`HOLD_EXPIRED\`, check-in precondition on the arrival date, optional \`room_id\` on check-in (migration 005). New fields: \`AvailabilityItem.rooms_total\`, \`ReservationRow\` (phone, created_at), \`ReservationDetail\` (status_remark, status_changed_at, checked_in_at, checked_out_at). Check-in before the arrival date used to work and is now refused. |
 `);
   return L.join('\n');
 }

@@ -63,8 +63,12 @@ const shapeOk = (r) => {
   const res = (await api('GET', '/api/reservations?q=Contract', null, 'frontdesk')).body[0];
   const co = await api('POST', `/api/reservations/${res.reservation_id}/check-out`, null, 'frontdesk');
   ok(co.status === 409 && co.body.error.code === 'INVALID_STATE' && shapeOk(co), 'check-out of a stay that never checked in: 409 INVALID_STATE');
-  const ci = await api('POST', `/api/reservations/${res.reservation_id}/check-in`, null, 'frontdesk');
-  const co2 = await api('POST', `/api/reservations/${res.reservation_id}/check-out`, null, 'frontdesk');
+  const early = await api('POST', `/api/reservations/${res.reservation_id}/check-in`, null, 'frontdesk');
+  ok(early.status === 409 && early.body.error.code === 'INVALID_STATE' && shapeOk(early), 'check-in before the arrival date: 409 INVALID_STATE');
+  const arr = await api('POST', '/api/reservations', { guest: { full_name: 'Arrives Today' }, room_type_id: typeId, check_in: t, check_out: S.addDays(t, 2), total_guests: 2, source_id: 1 }, 'frontdesk');
+  const ci = await api('POST', `/api/reservations/${arr.body.reservation_id}/check-in`, null, 'frontdesk');
+  ok(ci.status === 200, 'check-in on the arrival date works');
+  const co2 = await api('POST', `/api/reservations/${arr.body.reservation_id}/check-out`, null, 'frontdesk');
   ok(co2.status === 409 && co2.body.error.code === 'BALANCE_OUTSTANDING' && shapeOk(co2), 'check-out with a balance: 409 BALANCE_OUTSTANDING');
   const base2 = await api('POST', '/api/rates', { room_type_id: typeId, rule_type: 'BASE', rate_amount: 330 }, 'manager');
   const ap = await api('POST', `/api/rates/${base2.body.rate_rule_id}/approve`, null, 'admin');

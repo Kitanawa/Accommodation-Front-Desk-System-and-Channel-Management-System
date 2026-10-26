@@ -1,4 +1,4 @@
-# FDS Backend (M08 and M09, S052 to S069): How to Run
+# FDS Backend (M08, M09 and M11, S052 to S087): How to Run
 
 Needs Node.js 18 or newer. Commands are for Windows Command Prompt, run inside this folder.
 
@@ -10,7 +10,7 @@ npm test
 npm start
 ```
 
-- `npm test` should end with `TOTAL: 518 passed, 0 failed, 11 test files`.
+- `npm test` should end with `TOTAL: 632 passed, 0 failed, 12 test files`.
 - `npm start` runs the API at http://localhost:3000. Stop it with Ctrl+C.
 - Data is kept in a `data/` folder. No database install needed.
 
@@ -28,7 +28,7 @@ npm start
 
 - Use your own PostgreSQL user and password, with no quotes.
 - Special characters in the password must be encoded: `@` is `%40`, `#` is `%23`, `/` is `%2F`, `:` is `%3A`, `%` is `%25`.
-- `npm run migrate` creates all 19 tables. You do not create tables by hand.
+- `npm run migrate` creates all 20 tables. You do not create tables by hand.
 - Never commit a real password. Use `.env` (copy `.env.example`).
 
 To run the whole test suite on a real PostgreSQL server, give it a connection string to any database on that server (the user must be allowed to create databases). Each test file gets its own new database, dropped afterwards:
