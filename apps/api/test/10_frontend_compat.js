@@ -136,7 +136,16 @@ const as = (cookie, extra = {}) => ({ Cookie: cookie, ...extra });
       out.staff = await call('GET', '/api/staff', null, { Cookie: out.login.cookie });
       console.log('RESULT' + JSON.stringify(out)); process.exit(0);
     })().catch(e => { console.error(e); process.exit(1); });`;
-  const run = spawnSync('node', ['-e', script], { encoding: 'utf8', timeout: 120000 });
+  // On a real PostgreSQL server (DATABASE_URL set) the child process gets its own new, empty database.
+  const childEnv = { ...process.env }; let dropEmpty = async () => {};
+  if (process.env.DATABASE_URL) {
+    const { Client } = require('pg'), u = new URL(process.env.DATABASE_URL), name = 'fds_empty_' + process.pid;
+    const admin = new Client({ connectionString: process.env.DATABASE_URL }); await admin.connect(); await admin.query(`create database ${name}`);
+    u.pathname = '/' + name; childEnv.DATABASE_URL = u.toString();
+    dropEmpty = async () => { await admin.query(`drop database ${name} with (force)`); await admin.end(); };
+  }
+  const run = spawnSync('node', ['-e', script], { encoding: 'utf8', timeout: 120000, env: childEnv });
+  await dropEmpty();
   const m = /RESULT(.*)/.exec(run.stdout || ''); const R = m ? JSON.parse(m[1]) : {};
   if (!m) console.log(run.stdout, run.stderr);
   ok(R.state1 && R.state1.body.setupRequired === true, 'empty database: setupRequired is true');

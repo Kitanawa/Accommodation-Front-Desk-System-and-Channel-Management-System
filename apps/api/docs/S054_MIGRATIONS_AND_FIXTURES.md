@@ -16,6 +16,8 @@
 |---|---|
 | `001_init` | Creates the 17 tables of the SRS entity list with every constraint and index designed in S052/S053, and loads the reference values: 3 roles, 4 room statuses, 6 booking sources. |
 | `002_auth` | Adds what S056 and S058 need on top of the SRS entities: five columns on `users` (`is_active`, `failed_login_count`, `locked_until`, `password_changed_at`, `last_login_at`), a unique index on `lower(email)`, and the `user_sessions` table. |
+| `003_phone` | Adds `users.phone` for the web app's Staff screen. |
+| `004_rooms_rates` | M09: `rooms.floor`, approval for room types, rate validity dates and rate changes, the `add_ons` table (19 tables in all) and add-on charges. See `docs/EVIDENCE_S060_S069.md`. |
 
 **Note:** `002_auth` goes beyond the S052/S053 ERD (18 tables instead of 17). Either add `user_sessions` and the five `users` columns to the ERD and review workbook, or keep `002_auth` out until S056 starts. Nothing in S054/S055 depends on `001` being changed.
 

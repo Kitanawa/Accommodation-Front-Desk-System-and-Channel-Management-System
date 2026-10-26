@@ -1,10 +1,10 @@
 # FDS API Contract (S055)
 
-Version 0.4, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
+Version 0.5, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
 
 This file is generated from `docs/contract.js` (the same file produces `openapi.yaml`), and a test checks that every endpoint marked *implemented* really exists in the server and that none is missing here.
 
-**Status:** all 44 endpoints run today.
+**Status:** all 64 endpoints run today.
 
 ## 1. Conventions
 
@@ -212,8 +212,74 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | Endpoint | Who | Status | What it does |
 |---|---|---|---|
 | `GET /api/sources` | Any signed-in user | Implemented | Booking sources (Walk-in, Phone, Email, Website, Travel agent, OTA). |
-| `GET /api/room-types` | All roles | Implemented | Room types of my property. |
 | `GET /api/dashboard` | All roles | Implemented | Today's arrivals and departures, in-house count, room occupancy and pending rates (pending_rates is null for Front Desk). |
+
+### Room types
+
+| Endpoint | Who | Status | What it does |
+|---|---|---|---|
+| `GET /api/room-types` | All roles | Implemented | Room types of my property. Front Desk sees APPROVED types only; Administrator and Manager also see PENDING ones. |
+| `GET /api/room-types/{id}` | All roles | Implemented | One room type with its rates and rooms (Front Desk sees approved rates only). |
+| `POST /api/room-types` | Administrator, Manager | Implemented | S067: submit a room type together with its rates. Everything starts PENDING; the type cannot be sold until approved. |
+| `PATCH /api/room-types/{id}` | Administrator, Manager | Implemented | Change room type details. Details take effect at once; only rates need approval. |
+| `POST /api/room-types/{id}/approve` | Administrator; Manager only if can_approve_rates | Implemented | S067: approve a PENDING room type and its pending rates in one step. Needs a pending Base Rate. |
+| `DELETE /api/room-types/{id}` | Administrator, Manager | Implemented | Withdraw a room type that is still PENDING and has no reservations (its rates and rooms go with it). |
+
+**`GET /api/room-types/{id}`** returns 200 `RoomTypeDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
+
+**`POST /api/room-types`** returns 201 `RoomTypeSubmitted`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `CONFLICT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `category_id` | UUID | Yes |  |
+| `name` | string | Yes | 2 to 100 characters, unique in the category ignoring upper/lower case. |
+| `max_guests` | int | Yes | 1 to 20. |
+| `min_nights` | int | No | 1 to 365, default 1. |
+| `description` | string | No | Up to 2000 characters. |
+| `facilities` | string[] | No | Up to 40 names, each 1 to 60 characters; repeats are dropped. |
+| `photos` | Photo[] | No | Up to 20. Metadata only: url (http(s) or a path starting with /), caption, alt, sort_order. |
+| `layout_info` | string | No | Up to 500 characters. |
+| `rates` | RateInput[] | No | If given, exactly one BASE rate is required. Same rules as POST /api/rates. |
+
+**`PATCH /api/room-types/{id}`** returns 200 `RoomType`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `category_id` | UUID | No |  |
+| `name` | string | No |  |
+| `max_guests` | int | No |  |
+| `min_nights` | int | No |  |
+| `description` | string | No |  |
+| `facilities` | string[] | No |  |
+| `photos` | Photo[] | No |  |
+| `layout_info` | string | No |  |
+
+**`POST /api/room-types/{id}/approve`** returns 200 `RoomTypeApproved`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
+
+**`DELETE /api/room-types/{id}`** returns 200 `Ok`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
+
+### Room categories
+
+| Endpoint | Who | Status | What it does |
+|---|---|---|---|
+| `GET /api/room-categories` | All roles | Implemented | Room categories with the number of room types in each. |
+| `POST /api/room-categories` | Administrator, Manager | Implemented | S060: create a room category. The name must be unique ignoring upper/lower case. |
+| `PATCH /api/room-categories/{id}` | Administrator, Manager | Implemented | Rename a room category. |
+| `DELETE /api/room-categories/{id}` | Administrator, Manager | Implemented | Delete an empty room category. |
+
+**`POST /api/room-categories`** returns 201 `RoomCategory`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `CONFLICT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | Yes | 2 to 80 characters. |
+
+**`PATCH /api/room-categories/{id}`** returns 200 JSON. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | Yes | 2 to 80 characters. |
+
+**`DELETE /api/room-categories/{id}`** returns 200 `Ok`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
 
 ### Reservations
 
@@ -296,16 +362,17 @@ POST /api/reservations          (Authorization: Bearer q3...)
 
 | Endpoint | Who | Status | What it does |
 |---|---|---|---|
-| `POST /api/reservations/{id}/charges` | All roles | Implemented | Post an additional charge to the folio. |
+| `POST /api/reservations/{id}/charges` | All roles | Implemented | Post a charge to the folio: an additional charge, or an approved add-on (S069). An add-on charge records the approved price of that moment; later price changes never alter it. |
 | `POST /api/reservations/{id}/payments` | All roles | Implemented | Record a payment. Cannot be more than the balance. Updates payment_status. |
 
-**`POST /api/reservations/{id}/charges`** returns 201 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `FOLIO_CLOSED`.
+**`POST /api/reservations/{id}/charges`** returns 201 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `FOLIO_CLOSED`, `INVALID_STATE`.
 
 | Body fields | Type | Required | Notes |
 |---|---|---|---|
-| `description` | string | Yes | Up to 200 characters. |
-| `quantity` | number | No | Greater than 0. Default 1. |
-| `unit_price` | number | Yes | 0 or more. |
+| `description` | string | No | Up to 200 characters. Required unless add_on_id is sent (then the add-on name is used). |
+| `quantity` | number | No | Greater than 0. Default 1; for an add-on: 1 per stay, nights per night, guests per guest. |
+| `unit_price` | number | No | 0 or more. Required without add_on_id; not allowed with it. |
+| `add_on_id` | UUID | No | An approved, active add-on. |
 
 **`POST /api/reservations/{id}/payments`** returns 201 `ReservationDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
 
@@ -318,8 +385,29 @@ POST /api/reservations          (Authorization: Bearer q3...)
 
 | Endpoint | Who | Status | What it does |
 |---|---|---|---|
-| `GET /api/rooms` | All roles | Implemented | All rooms of my property with their status. |
+| `GET /api/rooms` | All roles | Implemented | All rooms of my property with their floor and status. |
+| `POST /api/rooms` | Administrator, Manager | Implemented | S062: add a physical room. The room number is unique ignoring upper/lower case. |
+| `PATCH /api/rooms/{id}` | Administrator, Manager | Implemented | Change a room number, floor or room type. The type cannot change while the room is assigned to a confirmed or in-house reservation. |
+| `DELETE /api/rooms/{id}` | Administrator, Manager | Implemented | Delete a room that has never been used for a stay. |
 | `PATCH /api/rooms/{id}/status` | All roles | Implemented | Change a room status. OCCUPIED is set by check-in only. |
+
+**`POST /api/rooms`** returns 201 `RoomCreated`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `CONFLICT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `room_type_id` | UUID | Yes |  |
+| `room_number` | string | Yes | 1 to 10 letters, digits or hyphens. |
+| `floor` | int | No | -5 to 200. |
+
+**`PATCH /api/rooms/{id}`** returns 200 `RoomUpdated`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `INVALID_STATE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `room_number` | string | No |  |
+| `floor` | int | No | null removes the floor. |
+| `room_type_id` | UUID | No |  |
+
+**`DELETE /api/rooms/{id}`** returns 200 `Ok`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
 
 **`PATCH /api/rooms/{id}/status`** returns 200 `Ok`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
 
@@ -333,7 +421,10 @@ POST /api/reservations          (Authorization: Bearer q3...)
 |---|---|---|---|
 | `GET /api/rates` | All roles | Implemented | Rate rules. Front Desk sees APPROVED only; Administrator and Manager see all. |
 | `POST /api/rates` | Administrator, Manager | Implemented | Create a rate rule. It starts as PENDING and has no effect until approved. |
-| `POST /api/rates/{id}/approve` | Administrator; Manager only if can_approve_rates | Implemented | Approve a PENDING rate. Administrator, or a Manager whose can_approve_rates is true. |
+| `POST /api/rates/{id}/approve` | Administrator; Manager only if can_approve_rates | Implemented | Approve a PENDING rate. Administrator, or a Manager whose can_approve_rates is true. Approving a change (S068) ends the rate it replaces from its effective date. |
+| `POST /api/rates/{id}/revise` | Administrator, Manager | Implemented | S068: change an approved rate. The new rate waits as PENDING; the approved rate stays in force until the change is approved and its effective date arrives. |
+| `DELETE /api/rates/{id}` | Administrator, Manager | Implemented | Withdraw a PENDING rate or change. An approved rate cannot be deleted. |
+| `GET /api/rates/preview` | All roles | Implemented | S066: nightly price for a stay (check-out night not counted), using approved rates only. Administrator and Manager also see the other rules that matched each night and nights that tie. |
 
 **`POST /api/rates`** returns 201 `RateCreated`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`.
 
@@ -341,14 +432,68 @@ POST /api/reservations          (Authorization: Bearer q3...)
 |---|---|---|---|
 | `room_type_id` | UUID | Yes |  |
 | `rule_type` | one of BASE, DATE_RANGE, SELECTED_DAY, SPECIFIC_DATE | Yes |  |
-| `rate_amount` | number | Yes | 0 or more. |
+| `rate_amount` | number | Yes | More than 0, at most 9,999,999.99, up to 2 decimals. |
+| `currency_code` | string | No | If sent, must be the property currency. |
 | `date_from` | date | No | DATE_RANGE only (required there). |
-| `date_to` | date | No | DATE_RANGE only (required there, on or after date_from). |
-| `selected_days` | whole numbers | No | SELECTED_DAY only (required there): 0 = Sunday to 6 = Saturday. |
+| `date_to` | date | No | DATE_RANGE only (required there, on or after date_from, at most 366 days). |
+| `selected_days` | whole numbers | No | SELECTED_DAY only (required there): 0 = Sunday to 6 = Saturday, each once. |
 | `specific_date` | date | No | SPECIFIC_DATE only (required there). |
-| `priority` | int | No | Higher wins (FR-17 is still to be confirmed). |
+| `priority` | int | No | 0 to 100. Higher wins (FR-17 is still to be confirmed). |
 
 **`POST /api/rates/{id}/approve`** returns 200 `Ok`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `BASE_RATE_EXISTS`, `INVALID_STATE`.
+
+**`POST /api/rates/{id}/revise`** returns 201 `RateRevisionCreated`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `rate_amount` | number | Yes | The new rate, different from the current one. |
+| `effective_from` | date | No | First night of the new rate, today or later. Default: the day it is approved. |
+| `priority` | int | No | 0 to 100. |
+| `currency_code` | string | No | If sent, must be the property currency. |
+
+**`DELETE /api/rates/{id}`** returns 200 `Ok`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
+
+**`GET /api/rates/preview`** returns 200 `RatePreview`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
+
+| Query parameters | Type | Required | Notes |
+|---|---|---|---|
+| `room_type_id` | UUID | Yes |  |
+| `from` | date | Yes |  |
+| `to` | date | Yes | After from, at most 90 nights. |
+
+### Add-ons
+
+| Endpoint | Who | Status | What it does |
+|---|---|---|---|
+| `GET /api/add-ons` | All roles | Implemented | Add-ons. Front Desk sees approved, active add-ons only; Administrator and Manager see all, with any pending new price. |
+| `POST /api/add-ons` | Administrator, Manager | Implemented | Create an add-on. It starts PENDING and cannot be charged until approved. |
+| `PATCH /api/add-ons/{id}` | Administrator, Manager | Implemented | Change an add-on. On an approved add-on a new unit_price waits as pending_unit_price; the approved price stays until it is approved. |
+| `POST /api/add-ons/{id}/approve` | Administrator; Manager only if can_approve_rates | Implemented | Approve a new add-on, or its pending new price. Independent of room type approval. |
+| `DELETE /api/add-ons/{id}` | Administrator, Manager | Implemented | Withdraw an add-on that is still PENDING. An approved add-on is switched off with is_active=false. |
+
+**`POST /api/add-ons`** returns 201 `AddOn`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `CONFLICT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | Yes | 2 to 80 characters, unique ignoring upper/lower case. |
+| `description` | string | No | Up to 300 characters. |
+| `pricing_unit` | one of PER_STAY, PER_NIGHT, PER_GUEST | No | Default PER_STAY. |
+| `unit_price` | number | Yes | 0 to 9,999,999.99, up to 2 decimals. |
+| `is_active` | bool | No |  |
+
+**`PATCH /api/add-ons/{id}`** returns 200 `AddOn`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | No |  |
+| `description` | string | No |  |
+| `pricing_unit` | one of PER_STAY, PER_NIGHT, PER_GUEST | No | Only while PENDING. |
+| `unit_price` | number | No |  |
+| `is_active` | bool | No |  |
+
+**`POST /api/add-ons/{id}/approve`** returns 200 `AddOn`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
+
+**`DELETE /api/add-ons/{id}`** returns 200 `Ok`. Errors: `VALIDATION_ERROR`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_STATE`.
 
 ### Audit
 
@@ -464,10 +609,15 @@ Please confirm or change these in review; each one is easy to change before the 
 3. **"Manager: Limited" for user management** means Front Desk accounts only (section 5).
 4. **Audit log** is visible to Administrator and Manager only (the SRS matrix has no audit row).
 5. **Rate precedence** (FR-17 is "to be confirmed"): higher `priority` wins; on a tie Specific Date, then Date Range, then Selected Day, then Base. Date Range includes both end dates.
-6. **A changed approved Base Rate** is refused (`BASE_RATE_EXISTS`), because the SRS does not say how a new rate replaces an approved one.
+6. **Changing an approved rate** (S068): the change is a new PENDING rate (`POST /api/rates/{id}/revise`). The approved rate stays in force until the change is approved and its `effective_from` night arrives (default: the day it is approved). A second approved Base Rate created the old way is still refused (`BASE_RATE_EXISTS`). Existing reservations keep the price recorded when they were made.
 7. **No pagination yet**, lists return at most 200 rows.
 8. **Statuses** (`CONFIRMED`, `CHECKED_IN`, `CHECKED_OUT`, `CANCELLED`; `UNPAID`, `PARTIAL`, `PAID`) come from the functional requirements; the SRS does not list them.
 9. **The web app's wording differs:** its Staff screen says managers can manage managers, and offers status "Pending Approval". This server follows the SRS reading in item 3 (a Manager manages Front Desk accounts only) and has no pending state; both are refused with a clear message. A changed email address is also refused for now.
+10. **Room types need approval before they are sold** (S067): a new room type is submitted with its rates, stays PENDING, and one approval makes the type and its pending rates live. Front Desk sees approved types only. Editing details of a room type takes effect at once; only rates need approval. The SRS only names Pending and Approved, so there is no "Rejected": a pending item is withdrawn instead.
+11. **Rate validation** (S063 to S065): a rate is more than 0, at most 9,999,999.99, with up to 2 decimals, in the property currency (a different `currency_code` is refused). A Date Range covers at most 366 days; `selected_days` lists each day once; `priority` is 0 to 100.
+12. **Rate ties** (S066): precedence is item 5. When a new rule has the same type and priority as an approved rule on an overlapping night, the response carries a `PRIORITY_TIE` warning, and the preview lists tied nights. The rule is still created.
+13. **Add-ons** (S069) are not an SRS entity; they are modelled as their own list with their own approval, separate from room types. A new price on an approved add-on waits as `pending_unit_price`. A charge from an add-on stores the price of that moment. Quantity defaults to 1 per stay, the number of nights per night, or the number of guests per guest.
+14. **Rooms** (S062): room numbers are unique across the system, ignoring upper/lower case (the system serves one property). Floor is -5 to 200. A room's type cannot change while the room is assigned to a confirmed or in-house reservation, and a room that has been used for a stay cannot be deleted. Adding a room does not change room stock.
 
 ## 10. Change log
 
@@ -476,3 +626,4 @@ Please confirm or change these in review; each one is easy to change before the 
 | 0.2 | First contract: conventions, identifiers, error catalog, 25 implemented endpoints, 11 planned. |
 | 0.3 | S056 and S058 built: the 11 planned endpoints (sessions, password rules and change, staff accounts) are now implemented. No field removed or renamed. |
 | 0.4 | Added the web app endpoints (section 4a) and `phone` on staff accounts (migration 003). Nothing removed or renamed. |
+| 0.5 | M09 (S060 to S069): room categories, room type details and approval, rooms with floors, rate validation, rate changes that wait for approval, price preview, add-ons (migration 004). New fields on existing responses: `RoomType` (category_id, photos, approval_status), `Room` (floor, room_type_id), `Rate` (room_type_id, currency_code, supersedes_id, effective_from, valid_until, in_force), `RateCreated.warnings`, charge type `ADD_ON`. Nothing removed or renamed. |

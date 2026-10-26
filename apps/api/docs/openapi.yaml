@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FDS Backend API
-  version: 0.4.0
+  version: 0.5.0
   description: Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.
 servers:
   - url: http://localhost:3000
@@ -11,11 +11,14 @@ tags:
   - name: Sign in
   - name: Sessions
   - name: Reference data
+  - name: Room types
+  - name: Room categories
   - name: Reservations
   - name: Stay
   - name: Folio
   - name: Rooms
   - name: Rates
+  - name: Add-ons
   - name: Audit
   - name: Staff accounts
   - name: Web app (apps/fds-web)
@@ -293,8 +296,8 @@ paths:
   /api/room-types:
     get:
       tags:
-        - Reference data
-      summary: Room types of my property.
+        - Room types
+      summary: Room types of my property. Front Desk sees APPROVED types only; Administrator and Manager also see PENDING ones.
       description: "Who: All roles. Status: implemented."
       operationId: GET_api_room_types
       x-status: implemented
@@ -309,6 +312,545 @@ paths:
                   $ref: "#/components/schemas/RoomType"
         "401":
           description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - Room types
+      summary: "S067: submit a room type together with its rates. Everything starts PENDING; the type cannot be sold until approved."
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: POST_api_room_types
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomTypeSubmitted"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                max_guests:
+                  type: integer
+                min_nights:
+                  type: integer
+                description:
+                  type: string
+                facilities:
+                  type: array
+                  items:
+                    type: string
+                photos:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Photo"
+                layout_info:
+                  type: string
+                rates:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RateInput"
+              required:
+                - category_id
+                - name
+                - max_guests
+  /api/room-types/{id}:
+    get:
+      tags:
+        - Room types
+      summary: One room type with its rates and rooms (Front Desk sees approved rates only).
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_room_types_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomTypeDetail"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags:
+        - Room types
+      summary: Change room type details. Details take effect at once; only rates need approval.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: PATCH_api_room_types_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomType"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                max_guests:
+                  type: integer
+                min_nights:
+                  type: integer
+                description:
+                  type: string
+                facilities:
+                  type: array
+                  items:
+                    type: string
+                photos:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Photo"
+                layout_info:
+                  type: string
+    delete:
+      tags:
+        - Room types
+      summary: Withdraw a room type that is still PENDING and has no reservations (its rates and rooms go with it).
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: DELETE_api_room_types_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/room-types/{id}/approve:
+    post:
+      tags:
+        - Room types
+      summary: "S067: approve a PENDING room type and its pending rates in one step. Needs a pending Base Rate."
+      description: "Who: Administrator; Manager only if can_approve_rates. Status: implemented."
+      operationId: POST_api_room_types_id_approve
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomTypeApproved"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/room-categories:
+    get:
+      tags:
+        - Room categories
+      summary: Room categories with the number of room types in each.
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_room_categories
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoomCategory"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - Room categories
+      summary: "S060: create a room category. The name must be unique ignoring upper/lower case."
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: POST_api_room_categories
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCategory"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+                - name
+  /api/room-categories/{id}:
+    patch:
+      tags:
+        - Room categories
+      summary: Rename a room category.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: PATCH_api_room_categories_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  database:
+                    type: string
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+                - name
+    delete:
+      tags:
+        - Room categories
+      summary: Delete an empty room category.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: DELETE_api_room_categories_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
           content:
             application/json:
               schema:
@@ -926,7 +1468,7 @@ paths:
     post:
       tags:
         - Folio
-      summary: Post an additional charge to the folio.
+      summary: "Post a charge to the folio: an additional charge, or an approved add-on (S069). An add-on charge records the approved price of that moment; later price changes never alter it."
       description: "Who: All roles. Status: implemented."
       operationId: POST_api_reservations_id_charges
       x-status: implemented
@@ -963,7 +1505,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "Error code: FOLIO_CLOSED"
+          description: "Error code: FOLIO_CLOSED or INVALID_STATE"
           content:
             application/json:
               schema:
@@ -987,9 +1529,9 @@ paths:
                   type: number
                 unit_price:
                   type: number
-              required:
-                - description
-                - unit_price
+                add_on_id:
+                  type: string
+                  format: uuid
   /api/reservations/{id}/payments:
     post:
       tags:
@@ -1065,7 +1607,7 @@ paths:
     get:
       tags:
         - Rooms
-      summary: All rooms of my property with their status.
+      summary: All rooms of my property with their floor and status.
       description: "Who: All roles. Status: implemented."
       operationId: GET_api_rooms
       x-status: implemented
@@ -1080,6 +1622,196 @@ paths:
                   $ref: "#/components/schemas/Room"
         "401":
           description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - Rooms
+      summary: "S062: add a physical room. The room number is unique ignoring upper/lower case."
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: POST_api_rooms
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCreated"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room_type_id:
+                  type: string
+                  format: uuid
+                room_number:
+                  type: string
+                floor:
+                  type: integer
+              required:
+                - room_type_id
+                - room_number
+  /api/rooms/{id}:
+    patch:
+      tags:
+        - Rooms
+      summary: Change a room number, floor or room type. The type cannot change while the room is assigned to a confirmed or in-house reservation.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: PATCH_api_rooms_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomUpdated"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT or INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                room_number:
+                  type: string
+                floor:
+                  type: integer
+                room_type_id:
+                  type: string
+                  format: uuid
+    delete:
+      tags:
+        - Rooms
+      summary: Delete a room that has never been used for a stay.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: DELETE_api_rooms_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
           content:
             application/json:
               schema:
@@ -1249,6 +1981,8 @@ paths:
                     - SPECIFIC_DATE
                 rate_amount:
                   type: number
+                currency_code:
+                  type: string
                 date_from:
                   type: string
                   format: date
@@ -1272,7 +2006,7 @@ paths:
     post:
       tags:
         - Rates
-      summary: Approve a PENDING rate. Administrator, or a Manager whose can_approve_rates is true.
+      summary: Approve a PENDING rate. Administrator, or a Manager whose can_approve_rates is true. Approving a change (S068) ends the rate it replaces from its effective date.
       description: "Who: Administrator; Manager only if can_approve_rates. Status: implemented."
       operationId: POST_api_rates_id_approve
       x-status: implemented
@@ -1316,6 +2050,490 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: "Error code: BASE_RATE_EXISTS or INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/rates/{id}/revise:
+    post:
+      tags:
+        - Rates
+      summary: "S068: change an approved rate. The new rate waits as PENDING; the approved rate stays in force until the change is approved and its effective date arrives."
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: POST_api_rates_id_revise
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RateRevisionCreated"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rate_amount:
+                  type: number
+                effective_from:
+                  type: string
+                  format: date
+                priority:
+                  type: integer
+                currency_code:
+                  type: string
+              required:
+                - rate_amount
+  /api/rates/{id}:
+    delete:
+      tags:
+        - Rates
+      summary: Withdraw a PENDING rate or change. An approved rate cannot be deleted.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: DELETE_api_rates_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/rates/preview:
+    get:
+      tags:
+        - Rates
+      summary: "S066: nightly price for a stay (check-out night not counted), using approved rates only. Administrator and Manager also see the other rules that matched each night and nights that tie."
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_rates_preview
+      x-status: implemented
+      parameters:
+        - name: room_type_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: After from, at most 90 nights.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RatePreview"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/add-ons:
+    get:
+      tags:
+        - Add-ons
+      summary: Add-ons. Front Desk sees approved, active add-ons only; Administrator and Manager see all, with any pending new price.
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_add_ons
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AddOn"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - Add-ons
+      summary: Create an add-on. It starts PENDING and cannot be charged until approved.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: POST_api_add_ons
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddOn"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                pricing_unit:
+                  type: string
+                  enum:
+                    - PER_STAY
+                    - PER_NIGHT
+                    - PER_GUEST
+                unit_price:
+                  type: number
+                is_active:
+                  type: boolean
+              required:
+                - name
+                - unit_price
+  /api/add-ons/{id}:
+    patch:
+      tags:
+        - Add-ons
+      summary: Change an add-on. On an approved add-on a new unit_price waits as pending_unit_price; the approved price stays until it is approved.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: PATCH_api_add_ons_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddOn"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                pricing_unit:
+                  type: string
+                  enum:
+                    - PER_STAY
+                    - PER_NIGHT
+                    - PER_GUEST
+                unit_price:
+                  type: number
+                is_active:
+                  type: boolean
+    delete:
+      tags:
+        - Add-ons
+      summary: Withdraw an add-on that is still PENDING. An approved add-on is switched off with is_active=false.
+      description: "Who: Administrator, Manager. Status: implemented."
+      operationId: DELETE_api_add_ons_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/add-ons/{id}/approve:
+    post:
+      tags:
+        - Add-ons
+      summary: Approve a new add-on, or its pending new price. Independent of room type approval.
+      description: "Who: Administrator; Manager only if can_approve_rates. Status: implemented."
+      operationId: POST_api_add_ons_id_approve
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddOn"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: FORBIDDEN"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
           content:
             application/json:
               schema:
@@ -2183,10 +3401,26 @@ components:
           type: string
         name:
           type: string
+    Photo:
+      type: object
+      properties:
+        url:
+          type: string
+        caption:
+          type: string
+          nullable: true
+        alt:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
     RoomType:
       type: object
       properties:
         room_type_id:
+          type: string
+          format: uuid
+        category_id:
           type: string
           format: uuid
         name:
@@ -2205,8 +3439,226 @@ components:
           items:
             type: string
           nullable: true
+        photos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Photo"
+          nullable: true
         layout_info:
           type: string
+          nullable: true
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+    RoomRef:
+      type: object
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        room_number:
+          type: string
+        floor:
+          type: integer
+          nullable: true
+    RateLine:
+      type: object
+      properties:
+        rate_rule_id:
+          type: string
+          format: uuid
+        rule_type:
+          type: string
+          enum:
+            - BASE
+            - DATE_RANGE
+            - SELECTED_DAY
+            - SPECIFIC_DATE
+        rate_amount:
+          type: number
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to:
+          type: string
+          format: date
+          nullable: true
+        selected_days:
+          type: array
+          items:
+            type: integer
+          nullable: true
+        specific_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: integer
+          nullable: true
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+        supersedes_id:
+          type: string
+          format: uuid
+          nullable: true
+        effective_from:
+          type: string
+          format: date
+          nullable: true
+        valid_until:
+          type: string
+          format: date
+          nullable: true
+    RoomTypeDetail:
+      type: object
+      properties:
+        room_type_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          type: string
+        max_guests:
+          type: integer
+        min_nights:
+          type: integer
+        description:
+          type: string
+          nullable: true
+        facilities:
+          type: array
+          items:
+            type: string
+          nullable: true
+        photos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Photo"
+          nullable: true
+        layout_info:
+          type: string
+          nullable: true
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+        rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/RateLine"
+        rooms:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoomRef"
+    RoomTypeSubmitted:
+      type: object
+      properties:
+        room_type_id:
+          type: string
+          format: uuid
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+        rates_submitted:
+          type: integer
+    RoomTypeApproved:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+        rates_approved:
+          type: integer
+    RoomCategory:
+      type: object
+      properties:
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        room_type_count:
+          type: integer
+    RateInput:
+      type: object
+      properties:
+        rule_type:
+          type: string
+          enum:
+            - BASE
+            - DATE_RANGE
+            - SELECTED_DAY
+            - SPECIFIC_DATE
+        rate_amount:
+          type: number
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to:
+          type: string
+          format: date
+          nullable: true
+        selected_days:
+          type: array
+          items:
+            type: integer
+          nullable: true
+        specific_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: integer
+          nullable: true
+        currency_code:
+          type: string
+          nullable: true
+    AddOn:
+      type: object
+      properties:
+        add_on_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        pricing_unit:
+          type: string
+          enum:
+            - PER_STAY
+            - PER_NIGHT
+            - PER_GUEST
+        unit_price:
+          type: number
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+        is_active:
+          type: boolean
+        pending_unit_price:
+          type: number
           nullable: true
     ReservationRow:
       type: object
@@ -2367,6 +3819,7 @@ components:
           enum:
             - ROOM
             - ADDITIONAL
+            - ADD_ON
         description:
           type: string
         quantity:
@@ -2528,6 +3981,12 @@ components:
           format: uuid
         room_number:
           type: string
+        floor:
+          type: integer
+          nullable: true
+        room_type_id:
+          type: string
+          format: uuid
         room_type:
           type: string
         status:
@@ -2540,10 +3999,48 @@ components:
         in_house_ref:
           type: string
           nullable: true
+    RoomCreated:
+      type: object
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        room_number:
+          type: string
+        room_type_id:
+          type: string
+          format: uuid
+        floor:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum:
+            - AVAILABLE
+            - OCCUPIED
+            - CLEANING
+            - MAINTENANCE_BLOCKED
+    RoomUpdated:
+      type: object
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        room_number:
+          type: string
+        floor:
+          type: integer
+          nullable: true
+        room_type_id:
+          type: string
+          format: uuid
     Rate:
       type: object
       properties:
         rate_rule_id:
+          type: string
+          format: uuid
+        room_type_id:
           type: string
           format: uuid
         room_type:
@@ -2557,6 +4054,8 @@ components:
             - SPECIFIC_DATE
         rate_amount:
           type: number
+        currency_code:
+          type: string
         date_from:
           type: string
           format: date
@@ -2582,6 +4081,30 @@ components:
           enum:
             - PENDING
             - APPROVED
+        supersedes_id:
+          type: string
+          format: uuid
+          nullable: true
+        effective_from:
+          type: string
+          format: date
+          nullable: true
+        valid_until:
+          type: string
+          format: date
+          nullable: true
+        in_force:
+          type: boolean
+    RateWarning:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        rate_rule_id:
+          type: string
+          format: uuid
     RateCreated:
       type: object
       properties:
@@ -2593,6 +4116,97 @@ components:
           enum:
             - PENDING
             - APPROVED
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/RateWarning"
+    RateRevisionCreated:
+      type: object
+      properties:
+        rate_rule_id:
+          type: string
+          format: uuid
+        approval_status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVED
+        supersedes_id:
+          type: string
+          format: uuid
+        current_rate:
+          type: number
+        effective_from:
+          type: string
+          format: date
+          nullable: true
+    AlsoMatched:
+      type: object
+      properties:
+        rate_rule_id:
+          type: string
+          format: uuid
+        rule_type:
+          type: string
+          enum:
+            - BASE
+            - DATE_RANGE
+            - SELECTED_DAY
+            - SPECIFIC_DATE
+        rate_amount:
+          type: number
+        priority:
+          type: integer
+    PreviewNight:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        rate:
+          type: number
+          nullable: true
+        rule:
+          type: string
+          nullable: true
+        rate_rule_id:
+          type: string
+          format: uuid
+          nullable: true
+        also_matched:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlsoMatched"
+          nullable: true
+        tie:
+          type: boolean
+          nullable: true
+    RatePreview:
+      type: object
+      properties:
+        room_type_id:
+          type: string
+          format: uuid
+        room_type:
+          type: string
+        nights:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreviewNight"
+        total:
+          type: number
+          nullable: true
+        missing_rate_nights:
+          type: array
+          items:
+            type: string
+            format: date
+        ties:
+          type: array
+          items:
+            type: string
+            format: date
+          nullable: true
     AuditRecord:
       type: object
       properties:

@@ -1,4 +1,4 @@
-# FDS Backend (M08, S052 to S058): How to Run
+# FDS Backend (M08 and M09, S052 to S069): How to Run
 
 Needs Node.js 18 or newer. Commands are for Windows Command Prompt, run inside this folder.
 
@@ -10,7 +10,7 @@ npm test
 npm start
 ```
 
-- `npm test` should end with `TOTAL: 345 passed, 0 failed, 10 test files`.
+- `npm test` should end with `TOTAL: 518 passed, 0 failed, 11 test files`.
 - `npm start` runs the API at http://localhost:3000. Stop it with Ctrl+C.
 - Data is kept in a `data/` folder. No database install needed.
 
@@ -28,8 +28,15 @@ npm start
 
 - Use your own PostgreSQL user and password, with no quotes.
 - Special characters in the password must be encoded: `@` is `%40`, `#` is `%23`, `/` is `%2F`, `:` is `%3A`, `%` is `%25`.
-- `npm run migrate` creates all 18 tables. You do not create tables by hand.
+- `npm run migrate` creates all 19 tables. You do not create tables by hand.
 - Never commit a real password. Use `.env` (copy `.env.example`).
+
+To run the whole test suite on a real PostgreSQL server, give it a connection string to any database on that server (the user must be allowed to create databases). Each test file gets its own new database, dropped afterwards:
+
+```
+set TEST_PG_URL=postgres://postgres:YOUR_PASSWORD@localhost:5432/postgres
+npm run test:pg
+```
 
 ## 3. Test the sign-in
 
@@ -76,6 +83,19 @@ Open http://127.0.0.1:5176 and sign in with `admin@fds.test` / `Orchid-Demo-2026
 - If the API is on another port, set `API_PROXY_TARGET=http://127.0.0.1:PORT` before `npm run dev`.
 - Tested with a real browser (headless Chromium): sign in, staff list, add, edit, disable, duplicate email, sign out.
 - Details of the web app endpoints: `docs\API_CONTRACT.md`, section 4a.
+
+### Check that the web app is really connected
+
+1. Sign in with `admin@fds.test`. This account exists only in the API database, so it works only if the web app is using the API. The old demo login `admin@hotel.local` should fail.
+2. Press F12, open the Network tab and sign in again. `POST /api/auth/login` should return 200, and the Staff screen should call `GET /api/staff`. Under Application, Cookies, `fds_session` should be marked HttpOnly.
+3. Stop the API (Ctrl+C in window 1) and reload the web app. Sign-in and the Staff list should fail. Start the API again and they work again.
+4. Add a staff member in the Staff screen, then read the list from the API in a third window:
+```
+curl -c c.txt -X POST http://127.0.0.1:3001/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@fds.test\",\"password\":\"Orchid-Demo-2026\"}"
+curl -b c.txt http://127.0.0.1:3001/api/staff
+```
+The new person should appear in the JSON.
+5. Sign in as `frontdesk@fds.test`. Staff management should be refused.
 
 ## Other commands
 

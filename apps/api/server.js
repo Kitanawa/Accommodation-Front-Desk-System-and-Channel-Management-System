@@ -41,13 +41,10 @@ app.get('/api/me', auth, (req, res) => res.json(A.publicUser(req.user)));
 
 // ---------- front end (apps/fds-web): cookie sign-in and /api/staff, translated onto the endpoints below ----------
 require('./frontend-compat')(app, { getDb: () => db, auth, need });
+require('./catalog')(app, { getDb: () => db, auth, need, wrap, validateRate: b => validateRate(b), checkCurrency: (...a) => checkCurrency(...a) });
 
 // ---------- reference data ----------
 app.get('/api/sources', auth, wrap(async (req, res) => res.json(await q('select source_id, code, name from booking_sources order by source_id'))));
-app.get('/api/room-types', auth, need('catalog.view'), wrap(async (req, res) => res.json(await q(
-  `select t.room_type_id, t.name, c.name category, t.max_guests, t.min_nights, t.description, t.facilities, t.layout_info
-   from room_types t join room_categories c using(category_id) where c.property_id=$1 order by t.name`, [prop(req)]))));
-
 // ---------- dashboard ----------
 app.get('/api/dashboard', auth, need('reports.operational'), wrap(async (req, res) => {
   const t = S.today(), p = prop(req);
@@ -160,20 +157,32 @@ app.post('/api/reservations/:id/check-out', auth, need('stay.operate'), wrap(asy
 
 // ---------- folio ----------
 app.post('/api/reservations/:id/charges', auth, need('folio.manage'), wrap(async (req, res) => {
-  const b = req.body || {}, f = new Fields();
-  if (typeof b.description !== 'string' || !b.description.trim()) f.add('description', 'Description is required.');
-  else if (b.description.length > 200) f.add('description', 'At most 200 characters.');
+  const b = req.body || {}, f = new Fields(), fromAddOn = b.add_on_id !== undefined && b.add_on_id !== null;
+  if (fromAddOn && !isUuid(b.add_on_id)) f.add('add_on_id', 'Must be a UUID.');
+  if (!fromAddOn || b.description !== undefined) {
+    if (typeof b.description !== 'string' || !b.description.trim()) f.add('description', 'Description is required.');
+    else if (b.description.length > 200) f.add('description', 'At most 200 characters.');
+  }
   const qty = b.quantity === undefined ? 1 : Number(b.quantity);
-  if (!(qty > 0)) f.add('quantity', 'Quantity must be greater than 0.');
-  if (b.unit_price === undefined || b.unit_price === '' || !(Number(b.unit_price) >= 0)) f.add('unit_price', 'Unit price must be a number of 0 or more.');
+  if (b.quantity !== undefined && !(qty > 0)) f.add('quantity', 'Quantity must be greater than 0.');
+  if (!fromAddOn && (b.unit_price === undefined || b.unit_price === '' || !(Number(b.unit_price) >= 0))) f.add('unit_price', 'Unit price must be a number of 0 or more.');
+  if (fromAddOn && b.unit_price !== undefined) f.add('unit_price', 'The price comes from the approved add-on. Leave it out.');
   f.check();
   await db.tx(async t => {
     const r = await S.getReservation(t.q, prop(req), req.params.id);
     if (r.closed_at || r.status === 'CANCELLED') throw conflict('This folio is closed.', 'FOLIO_CLOSED');
-    const amount = money(qty * Number(b.unit_price));
-    const [c] = await t.q(`insert into charges(folio_id,charge_type,description,quantity,unit_price,amount) values($1,'ADDITIONAL',$2,$3,$4,$5) returning charge_id`, [r.folio_id, b.description.trim(), qty, b.unit_price, amount]);
+    let desc = (b.description || '').trim(), unit = b.unit_price, q2 = qty, type = 'ADDITIONAL', addOnId = null;
+    if (fromAddOn) {                                                         // S069: record the approved price as it is today; later price changes never touch this charge
+      const [a] = await t.q('select add_on_id, name, pricing_unit, unit_price::float8 unit_price, approval_status, is_active from add_ons where add_on_id=$1 and property_id=$2', [b.add_on_id, prop(req)]);
+      if (!a) throw notFound('Add-on not found.');
+      if (a.approval_status !== 'APPROVED' || !a.is_active) throw conflict('This add-on is not available.', 'INVALID_STATE');
+      desc = desc || a.name; unit = a.unit_price; type = 'ADD_ON'; addOnId = a.add_on_id;
+      if (b.quantity === undefined) q2 = a.pricing_unit === 'PER_NIGHT' ? S.nightsList(r.check_in, r.check_out).length : a.pricing_unit === 'PER_GUEST' ? r.total_guests : 1;
+    }
+    const amount = money(q2 * Number(unit));
+    const [c] = await t.q(`insert into charges(folio_id,charge_type,description,quantity,unit_price,amount,add_on_id) values($1,$2,$3,$4,$5,$6,$7) returning charge_id`, [r.folio_id, type, desc, q2, unit, amount, addOnId]);
     await S.recalcPayment(t.q, r.reservation_id);
-    await S.audit(t.q, req.user.user_id, 'CHARGE_POSTED', 'charges', c.charge_id, null, { description: b.description.trim(), amount });
+    await S.audit(t.q, req.user.user_id, 'CHARGE_POSTED', 'charges', c.charge_id, null, { description: desc, amount, add_on_id: addOnId });
   });
   res.status(201).json(await S.getReservation(q, prop(req), req.params.id));
 }));
@@ -196,7 +205,7 @@ app.post('/api/reservations/:id/payments', auth, need('folio.manage'), wrap(asyn
 // ---------- rooms ----------
 const roomScope = `from rooms r join room_types t using(room_type_id) join room_categories c on c.category_id=t.category_id`;
 app.get('/api/rooms', auth, need('catalog.view'), wrap(async (req, res) => res.json(await q(
-  `select r.room_id, r.room_number, t.name room_type, st.code status,
+  `select r.room_id, r.room_number, r.floor, t.room_type_id, t.name room_type, st.code status,
      (select x.reservation_ref from reservation_rooms rr join reservations x using(reservation_id) where rr.room_id=r.room_id and x.status='CHECKED_IN' limit 1) in_house_ref
    ${roomScope} join room_statuses st on st.status_id=r.status_id where c.property_id=$1 order by r.room_number`, [prop(req)]))));
 app.patch('/api/rooms/:id/status', auth, need('stay.operate'), wrap(async (req, res) => {
@@ -219,16 +228,24 @@ function validateRate(b) {
   const unused = (keys, label) => keys.forEach(k => has(k) && f.add(k, `Not used by ${label}.`));
   if (!isUuid(b.room_type_id)) f.add('room_type_id', 'Choose a room type.');
   if (!types.includes(b.rule_type)) f.add('rule_type', `Must be one of ${types.join(', ')}.`);
-  if (b.rate_amount === undefined || b.rate_amount === '' || !(Number(b.rate_amount) >= 0)) f.add('rate_amount', 'Rate must be a number of 0 or more.');
-  if (has('priority') && !Number.isInteger(Number(b.priority))) f.add('priority', 'Priority must be a whole number.');
+  const amt = Number(b.rate_amount);
+  if (b.rate_amount === undefined || b.rate_amount === null || b.rate_amount === '' || typeof b.rate_amount === 'boolean' || !Number.isFinite(amt)) f.add('rate_amount', 'Rate must be a number.');
+  else if (!(amt > 0)) f.add('rate_amount', 'Rate must be greater than 0.');
+  else if (amt > 9999999.99) f.add('rate_amount', 'Rate must be 9,999,999.99 or less.');
+  else if (Math.round(amt * 100) / 100 !== amt) f.add('rate_amount', 'Rate can have at most 2 decimal places.');
+  if (has('currency_code') && !/^[A-Z]{3}$/.test(String(b.currency_code))) f.add('currency_code', 'Currency must be a 3-letter code such as MYR.');
+  if (has('priority') && !(Number.isInteger(Number(b.priority)) && Number(b.priority) >= 0 && Number(b.priority) <= 100)) f.add('priority', 'Priority must be a whole number from 0 to 100.');
   if (b.rule_type === 'BASE') unused(['date_from', 'date_to', 'specific_date', 'selected_days'], 'a Base Rate');
   if (b.rule_type === 'DATE_RANGE') {
     if (!S.isDate(b.date_from)) f.add('date_from', 'Required (YYYY-MM-DD).');
-    if (!S.isDate(b.date_to)) f.add('date_to', 'Required (YYYY-MM-DD).'); else if (S.isDate(b.date_from) && b.date_to < b.date_from) f.add('date_to', 'Must be on or after date_from.');
+    if (!S.isDate(b.date_to)) f.add('date_to', 'Required (YYYY-MM-DD).');
+    else if (S.isDate(b.date_from) && b.date_to < b.date_from) f.add('date_to', 'Must be on or after date_from.');
+    else if (S.isDate(b.date_from) && S.nightsList(b.date_from, S.addDays(b.date_to, 1)).length > 366) f.add('date_to', 'A Date Range can cover at most 366 days.');
     unused(['specific_date', 'selected_days'], 'a Date Range');
   }
   if (b.rule_type === 'SELECTED_DAY') {
     if (!Array.isArray(b.selected_days) || !b.selected_days.length || !b.selected_days.every(d => Number.isInteger(d) && d >= 0 && d <= 6)) f.add('selected_days', 'Choose one or more days (0 = Sunday to 6 = Saturday).');
+    else if (new Set(b.selected_days).size !== b.selected_days.length) f.add('selected_days', 'Each day can be chosen once.');
     unused(['date_from', 'date_to', 'specific_date'], 'a Selected Day rule');
   }
   if (b.rule_type === 'SPECIFIC_DATE') {
@@ -237,32 +254,120 @@ function validateRate(b) {
   }
   return f;
 }
+const rateCols = `rr.rate_rule_id, rr.room_type_id, t.name room_type, rr.rule_type, rr.rate_amount::float8 rate_amount, c.currency_code, rr.date_from::text date_from, rr.date_to::text date_to,
+     rr.selected_days, rr.specific_date::text specific_date, rr.priority, rr.approval_status, rr.supersedes_id, rr.effective_from::text effective_from, rr.valid_until::text valid_until,
+     (rr.approval_status='APPROVED' and (rr.effective_from is null or rr.effective_from<=$2::date) and (rr.valid_until is null or rr.valid_until>$2::date)) in_force`;
+const rateFrom = `from rate_rules rr join room_types t using(room_type_id) join (select c.category_id, c.property_id, p.currency_code from room_categories c join properties p using(property_id)) c on c.category_id=t.category_id`;
 app.get('/api/rates', auth, need('rates.view_approved'), wrap(async (req, res) => res.json(await q(
-  `select rr.rate_rule_id, t.name room_type, rr.rule_type, rr.rate_amount::float8 rate_amount, rr.date_from::text date_from, rr.date_to::text date_to,
-     rr.selected_days, rr.specific_date::text specific_date, rr.priority, rr.approval_status
-   ${rateScope} where c.property_id=$1 ${P.can(req.user, 'rates.view_all') ? '' : "and rr.approval_status='APPROVED'"} order by t.name, rr.rule_type, rr.created_at`, [prop(req)]))));
+  `select ${rateCols} ${rateFrom} where c.property_id=$1 ${P.can(req.user, 'rates.view_all') ? '' : "and rr.approval_status='APPROVED'"} order by t.name, rr.rule_type, rr.created_at`, [prop(req), S.today()]))));
+const hasV = (b, k) => b[k] !== undefined && b[k] !== null && b[k] !== '';
+const sortedDays = d => Array.isArray(d) && d.length ? [...d].sort((x, y) => x - y) : null;
+// S063: the rate is in the property's currency. A different currency in the request is refused.
+async function checkCurrency(run, propertyId, b) {
+  const [p] = await run('select currency_code from properties where property_id=$1', [propertyId]);
+  if (hasV(b, 'currency_code') && b.currency_code !== p.currency_code) throw bad('This property sells in ' + p.currency_code + '.', [{ field: 'currency_code', message: `Must be ${p.currency_code} (the property currency).` }]);
+  return p.currency_code;
+}
+// S066: warn when a new rule ties with an approved rule (same type and priority and an overlapping night), because the SRS leaves precedence open.
+async function tieWarnings(run, typeId, b) {
+  const rules = (await S.loadRules(run, typeId)).filter(r => r.approval_status === 'APPROVED' && r.valid_until == null && r.rule_type === b.rule_type && (r.priority ?? 0) === (hasV(b, 'priority') ? Number(b.priority) : 0));
+  const overlaps = r => {
+    if (b.rule_type === 'BASE') return true;
+    if (b.rule_type === 'SPECIFIC_DATE') return r.specific_date === b.specific_date;
+    if (b.rule_type === 'SELECTED_DAY') return (r.selected_days || []).some(d => (b.selected_days || []).includes(d));
+    return r.date_from <= b.date_to && b.date_from <= r.date_to;
+  };
+  return rules.filter(overlaps).map(r => ({ code: 'PRIORITY_TIE', message: 'An approved rule of the same type and priority already covers some of these nights. Give one a higher priority.', rate_rule_id: r.rate_rule_id }));
+}
+const rateRow = async (run, id, propertyId) => (await run(`select rr.*, c.property_id ${rateScope} where rr.rate_rule_id=$1 and c.property_id=$2`, [id, propertyId]))[0];
+
 app.post('/api/rates', auth, need('rates.manage'), wrap(async (req, res) => {
   const b = req.body || {}; validateRate(b).check();
   const [t] = await q('select t.room_type_id from room_types t join room_categories c using(category_id) where t.room_type_id=$1 and c.property_id=$2', [b.room_type_id, prop(req)]);
   if (!t) throw notFound('Room type not found.');
-  const has = k => b[k] !== undefined && b[k] !== null && b[k] !== '';
+  await checkCurrency(q, prop(req), b);
   const [r] = await q(`insert into rate_rules(room_type_id,rule_type,rate_amount,date_from,date_to,selected_days,specific_date,priority)
-    values($1,$2,$3,$4,$5,$6,$7,$8) returning rate_rule_id`, [b.room_type_id, b.rule_type, b.rate_amount, has('date_from') ? b.date_from : null, has('date_to') ? b.date_to : null,
-    Array.isArray(b.selected_days) && b.selected_days.length ? b.selected_days : null, has('specific_date') ? b.specific_date : null, has('priority') ? b.priority : null]);
+    values($1,$2,$3,$4,$5,$6,$7,$8) returning rate_rule_id`, [b.room_type_id, b.rule_type, b.rate_amount, hasV(b, 'date_from') ? b.date_from : null, hasV(b, 'date_to') ? b.date_to : null,
+    sortedDays(b.selected_days), hasV(b, 'specific_date') ? b.specific_date : null, hasV(b, 'priority') ? b.priority : null]);
   await S.audit(q, req.user.user_id, 'RATE_CREATED', 'rate_rules', r.rate_rule_id, null, { ...b, approval_status: 'PENDING' });
-  res.status(201).json({ rate_rule_id: r.rate_rule_id, approval_status: 'PENDING' });
+  res.status(201).json({ rate_rule_id: r.rate_rule_id, approval_status: 'PENDING', warnings: await tieWarnings(q, b.room_type_id, b) });
 }));
+
+// S068: change an approved rate. The change is a new PENDING rate; the approved rate stays in force until the change is approved and its date arrives.
+app.post('/api/rates/:id/revise', auth, need('rates.manage'), wrap(async (req, res) => {
+  const b = req.body || {}, f = new Fields();
+  const cur = await rateRow(q, req.params.id, prop(req));
+  if (!cur) throw notFound('Rate not found.');
+  if (cur.approval_status !== 'APPROVED' || cur.valid_until) throw conflict('Only a rate that is approved and in force can be changed. Edit a pending rate by withdrawing it and creating it again.', 'INVALID_STATE');
+  const amt = Number(b.rate_amount);
+  if (b.rate_amount === undefined || b.rate_amount === null || b.rate_amount === '' || !Number.isFinite(amt)) f.add('rate_amount', 'Rate must be a number.');
+  else if (!(amt > 0) || amt > 9999999.99 || Math.round(amt * 100) / 100 !== amt) f.add('rate_amount', 'Rate must be more than 0, at most 9,999,999.99, with at most 2 decimal places.');
+  if (hasV(b, 'effective_from')) { if (!S.isDate(b.effective_from)) f.add('effective_from', 'Must be a date (YYYY-MM-DD).'); else if (b.effective_from < S.today()) f.add('effective_from', 'Must be today or later.'); }
+  if (hasV(b, 'priority') && !(Number.isInteger(Number(b.priority)) && Number(b.priority) >= 0 && Number(b.priority) <= 100)) f.add('priority', 'Priority must be a whole number from 0 to 100.');
+  f.check();
+  await checkCurrency(q, prop(req), b);
+  if (amt === Number(cur.rate_amount) && !hasV(b, 'priority')) throw bad('The new rate is the same as the current one.', [{ field: 'rate_amount', message: 'Enter a different rate.' }]);
+  const [dup] = await q("select 1 x from rate_rules where supersedes_id=$1 and approval_status='PENDING'", [cur.rate_rule_id]);
+  if (dup) throw conflict('A change to this rate is already waiting for approval. Withdraw it first.', 'INVALID_STATE');
+  const [r] = await q(`insert into rate_rules(room_type_id,rule_type,rate_amount,date_from,date_to,selected_days,specific_date,priority,supersedes_id,effective_from)
+    values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning rate_rule_id`, [cur.room_type_id, cur.rule_type, b.rate_amount, cur.date_from, cur.date_to, cur.selected_days, cur.specific_date,
+    hasV(b, 'priority') ? b.priority : cur.priority, cur.rate_rule_id, hasV(b, 'effective_from') ? b.effective_from : null]);
+  await S.audit(q, req.user.user_id, 'RATE_CHANGE_SUBMITTED', 'rate_rules', r.rate_rule_id, { rate_amount: Number(cur.rate_amount) }, { rate_amount: amt, effective_from: b.effective_from || null, supersedes_id: cur.rate_rule_id });
+  res.status(201).json({ rate_rule_id: r.rate_rule_id, approval_status: 'PENDING', supersedes_id: cur.rate_rule_id, current_rate: Number(cur.rate_amount), effective_from: hasV(b, 'effective_from') ? b.effective_from : null });
+}));
+
 app.post('/api/rates/:id/approve', auth, need('rates.approve'), wrap(async (req, res) => {
-  const [r] = await q(`select rr.rate_rule_id, rr.room_type_id, rr.rule_type, rr.approval_status ${rateScope} where rr.rate_rule_id=$1 and c.property_id=$2`, [req.params.id, prop(req)]);
-  if (!r) throw notFound('Rate not found.');
-  if (r.approval_status === 'APPROVED') throw conflict('Already approved.', 'INVALID_STATE');
-  if (r.rule_type === 'BASE') {
-    const [ex] = await q("select 1 x from rate_rules where room_type_id=$1 and rule_type='BASE' and approval_status='APPROVED'", [r.room_type_id]);
-    if (ex) throw conflict('This room type already has an approved Base Rate. The SRS does not say how a changed rate replaces an approved one (open question 3).', 'BASE_RATE_EXISTS');
-  }
-  await q("update rate_rules set approval_status='APPROVED' where rate_rule_id=$1", [r.rate_rule_id]);
-  await S.audit(q, req.user.user_id, 'RATE_APPROVED', 'rate_rules', r.rate_rule_id, { approval_status: 'PENDING' }, { approval_status: 'APPROVED' });
+  await db.tx(async t => {
+    const r = await rateRow(t.q, req.params.id, prop(req));
+    if (!r) throw notFound('Rate not found.');
+    if (r.approval_status === 'APPROVED') throw conflict('Already approved.', 'INVALID_STATE');
+    const [ty] = await t.q('select approval_status from room_types where room_type_id=$1', [r.room_type_id]);
+    if (ty.approval_status !== 'APPROVED') throw conflict('This room type is waiting for approval. Approve the room type; its rates are approved with it.', 'INVALID_STATE');
+    let effective = null;
+    if (r.supersedes_id) {                                                   // S068: replace the current rate from the effective date
+      const [old] = await t.q('select rate_rule_id, approval_status, valid_until from rate_rules where rate_rule_id=$1 for update', [r.supersedes_id]);
+      if (!old || old.approval_status !== 'APPROVED' || old.valid_until) throw conflict('The rate this change replaces is no longer in force. Withdraw this change.', 'INVALID_STATE');
+      effective = r.effective_from || S.today();
+      // the rate it replaces, and any older rate that was still waiting for that one to take over, all end on the effective date
+      await t.q(`with recursive chain as (select rate_rule_id, supersedes_id from rate_rules where rate_rule_id=$1
+          union all select r.rate_rule_id, r.supersedes_id from rate_rules r join chain c on r.rate_rule_id=c.supersedes_id)
+        update rate_rules set valid_until=$2::date where rate_rule_id in (select rate_rule_id from chain) and (valid_until is null or valid_until>$2::date)`, [old.rate_rule_id, effective]);
+    } else if (r.rule_type === 'BASE') {
+      const [ex] = await t.q("select 1 x from rate_rules where room_type_id=$1 and rule_type='BASE' and approval_status='APPROVED' and valid_until is null", [r.room_type_id]);
+      if (ex) throw conflict('This room type already has an approved Base Rate. Use "change rate" on it instead.', 'BASE_RATE_EXISTS');
+    }
+    await t.q("update rate_rules set approval_status='APPROVED', effective_from=coalesce($2::date, effective_from) where rate_rule_id=$1", [r.rate_rule_id, effective]);
+    await S.audit(t.q, req.user.user_id, 'RATE_APPROVED', 'rate_rules', r.rate_rule_id, { approval_status: 'PENDING' }, { approval_status: 'APPROVED', effective_from: effective });
+  });
   res.json({ ok: true });
+}));
+
+// Withdraw a rate that is still PENDING (a new rule or a change). Approved rates are never deleted.
+app.delete('/api/rates/:id', auth, need('rates.manage'), wrap(async (req, res) => {
+  const r = await rateRow(q, req.params.id, prop(req));
+  if (!r) throw notFound('Rate not found.');
+  if (r.approval_status !== 'PENDING') throw conflict('Only a pending rate can be withdrawn. An approved rate is replaced with "change rate".', 'INVALID_STATE');
+  await q('delete from rate_rules where rate_rule_id=$1', [r.rate_rule_id]);
+  await S.audit(q, req.user.user_id, 'RATE_WITHDRAWN', 'rate_rules', r.rate_rule_id, { rate_amount: Number(r.rate_amount), rule_type: r.rule_type }, null);
+  res.json({ ok: true });
+}));
+
+// S066: nightly price preview. Shows the winning rule for each night, the other rules that matched, and nights that tie.
+app.get('/api/rates/preview', auth, need('rates.view_approved'), wrap(async (req, res) => {
+  const { room_type_id, from, to } = req.query, f = new Fields(), canAll = P.can(req.user, 'rates.view_all');
+  if (!isUuid(room_type_id)) f.add('room_type_id', 'Choose a room type.');
+  if (!S.isDate(from)) f.add('from', 'Must be a date (YYYY-MM-DD).');
+  if (!S.isDate(to)) f.add('to', 'Must be a date (YYYY-MM-DD).');
+  else if (S.isDate(from) && to <= from) f.add('to', 'Must be after from (check-out night is not counted).');
+  else if (S.isDate(from) && S.nightsList(from, to).length > 90) f.add('to', 'Preview at most 90 nights.');
+  f.check();
+  const [t] = await q(`select t.room_type_id, t.name, t.approval_status from room_types t join room_categories c using(category_id) where t.room_type_id=$1 and c.property_id=$2`, [room_type_id, prop(req)]);
+  if (!t || (t.approval_status !== 'APPROVED' && !canAll)) throw notFound('Room type not found.');
+  const rules = await S.loadRules(q, room_type_id), nights = S.nightsList(from, to).map(d => S.explainNight(rules, d));
+  const priced = nights.every(n => n.rate !== null);
+  res.json({ room_type_id, room_type: t.name, nights: canAll ? nights : nights.map(n => ({ date: n.date, rate: n.rate, rule: n.rule })),
+    total: priced ? Math.round(nights.reduce((s, n) => s + n.rate, 0) * 100) / 100 : null, missing_rate_nights: nights.filter(n => n.rate === null).map(n => n.date),
+    ties: canAll ? nights.filter(n => n.tie).map(n => n.date) : undefined });
 }));
 
 // ---------- audit (FR-22) ----------

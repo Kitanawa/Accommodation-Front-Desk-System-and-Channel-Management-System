@@ -11,27 +11,30 @@ const accepts = async (d, sql) => { try { await d.exec(sql); return true; } catc
 
 (async () => {
   const d = await createEmbedded('memory');
-  ok(JSON.stringify(M.versions()) === '["001_init","002_auth","003_phone"]', 'three migrations, in order: 001_init, 002_auth, 003_phone');
+  ok(JSON.stringify(M.versions()) === '["001_init","002_auth","003_phone","004_rooms_rates"]', 'four migrations, in order: 001_init, 002_auth, 003_phone, 004_rooms_rates');
   ok((await M.status(d)).every(s => !s.applied), 'a new database has nothing applied');
-  ok(JSON.stringify(await M.up(d)) === '["001_init","002_auth","003_phone"]', 'up applies all three migrations');
+  ok(JSON.stringify(await M.up(d)) === '["001_init","002_auth","003_phone","004_rooms_rates"]', 'up applies all four migrations');
   ok((await M.status(d)).every(s => s.applied), 'status shows all applied');
   ok(await hasCol(d, 'users', 'phone'), '003 adds users.phone');
-  ok(await count(d) === 18, '18 tables exist (17 SRS entities + user_sessions)');
+  ok(await hasCol(d, 'rooms', 'floor') && await hasCol(d, 'room_types', 'approval_status') && await hasCol(d, 'rate_rules', 'valid_until') && await hasCol(d, 'charges', 'add_on_id'), '004 adds floor, room type approval, rate validity dates and charges.add_on_id');
+  ok(await count(d) === 19, '19 tables exist (17 SRS entities + user_sessions + add_ons)');
   const ref = async () => JSON.stringify([(await d.q('select count(*)::int n from roles'))[0].n, (await d.q('select count(*)::int n from room_statuses'))[0].n, (await d.q('select count(*)::int n from booking_sources'))[0].n]);
   ok(await ref() === '[3,4,6]', 'reference data loaded: 3 roles, 4 room statuses, 6 booking sources');
   ok((await M.up(d)).length === 0, 'running up again changes nothing');
 
-  ok(JSON.stringify(await M.down(d)) === '["003_phone"]', 'down rolls back only the newest migration');
+  ok(JSON.stringify(await M.down(d)) === '["004_rooms_rates"]', 'down rolls back only the newest migration');
+  ok(!(await hasTable(d, 'add_ons')) && !(await hasCol(d, 'rooms', 'floor')) && !(await hasCol(d, 'room_types', 'approval_status')) && await hasCol(d, 'users', 'phone') && await count(d) === 18, '004 is gone, 003 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["003_phone"]', 'down again rolls back 003_phone');
   ok(!(await hasCol(d, 'users', 'phone')) && await hasTable(d, 'user_sessions') && await hasCol(d, 'users', 'is_active'), 'users.phone is gone, 002 is untouched');
-  ok(JSON.stringify(await M.down(d)) === '["002_auth"]', 'down again rolls back 002_auth');
+  ok(JSON.stringify(await M.down(d)) === '["002_auth"]', 'down once more rolls back 002_auth');
   ok(!(await hasTable(d, 'user_sessions')) && !(await hasCol(d, 'users', 'is_active')) && await hasTable(d, 'users'), 'user_sessions and the 002 users columns are gone, users table stays');
   ok((await d.q('select version from schema_migrations')).length === 1, 'schema_migrations records only 001_init');
   await M.up(d);
-  ok(await count(d) === 18 && await hasCol(d, 'users', 'locked_until'), 'up after down restores everything');
+  ok(await count(d) === 19 && await hasCol(d, 'users', 'locked_until') && await hasTable(d, 'add_ons'), 'up after down restores everything');
   await M.down(d, { steps: Infinity });
   ok(await count(d) === 0, 'down all removes every table');
   await M.up(d);
-  ok(await count(d) === 18 && await ref() === '[3,4,6]', 'up after down all rebuilds the schema and reference data');
+  ok(await count(d) === 19 && await ref() === '[3,4,6]', 'up after down all rebuilds the schema and reference data');
 
   // atomic: a failing migration leaves no half-done work behind
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'));
@@ -70,5 +73,17 @@ const accepts = async (d, sql) => { try { await d.exec(sql); return true; } catc
   await d.exec(`insert into rooms(room_type_id,room_number) values('${rt}','305')`);
   ok(await rejects(d, `insert into rooms(room_type_id,room_number) values('${rt}','305')`), 'a duplicate room number is rejected');
   ok(await rejects(d, `delete from room_types where room_type_id='${rt}'`), 'a room type that is in use cannot be deleted');
+  // M09 rules (migration 004)
+  ok(await rejects(d, `insert into rooms(room_type_id,room_number,floor) values('${rt}','F999',201)`) && await accepts(d, `insert into rooms(room_type_id,room_number,floor) values('${rt}','F-1',-1)`), 'floor must be between -5 and 200');
+  ok(await rejects(d, `insert into room_types(category_id,name,max_guests,approval_status) values('${cat}','Bad',2,'REJECTED')`), 'room type status outside Pending/Approved is rejected');
+  ok(await rejects(d, `insert into room_categories(property_id,name) values('${sid}','c')`), 'a category name that differs only in upper/lower case is rejected');
+  ok(await rejects(d, `insert into room_types(category_id,name,max_guests) values('${cat}','t',2)`), 'a room type name that differs only in upper/lower case is rejected');
+  const baseId = (await d.q(`select rate_rule_id from rate_rules where room_type_id='${rt}' and rule_type='BASE' and approval_status='APPROVED'`))[0].rate_rule_id;
+  await d.exec(`update rate_rules set valid_until='2027-01-01' where rate_rule_id='${baseId}'`);
+  ok(await accepts(d, `insert into rate_rules(room_type_id,rule_type,rate_amount,approval_status,supersedes_id,effective_from) values('${rt}','BASE',120,'APPROVED','${baseId}','2027-01-01')`), 'a new approved Base Rate is allowed once the old one has an end date');
+  ok(await rejects(d, `insert into rate_rules(room_type_id,rule_type,rate_amount,approval_status) values('${rt}','BASE',130,'APPROVED')`), 'two current approved Base Rates are still rejected');
+  ok(await accepts(d, `insert into rate_rules(room_type_id,rule_type,rate_amount,supersedes_id) values('${rt}','BASE',140,'${baseId}')`) && await rejects(d, `insert into rate_rules(room_type_id,rule_type,rate_amount,supersedes_id) values('${rt}','BASE',150,'${baseId}')`), 'only one pending change can wait for one rate');
+  ok(await accepts(d, `insert into add_ons(property_id,name,unit_price) values('${sid}','Extra bed',30)`) && await rejects(d, `insert into add_ons(property_id,name,unit_price) values('${sid}','EXTRA BED',30)`), 'add-on names are unique ignoring upper/lower case');
+  ok(await rejects(d, `insert into add_ons(property_id,name,unit_price,pricing_unit) values('${sid}','Odd',5,'PER_YEAR')`) && await rejects(d, `insert into add_ons(property_id,name,unit_price) values('${sid}','Neg',-1)`), 'add-on pricing unit and price are checked');
   summary();
 })().catch(e => { console.error(e); process.exit(1); });

@@ -17,18 +17,32 @@ const audit = (q, userId, action, type, id, oldV, newV) =>
 // Only APPROVED rules are used. Precedence is "to be confirmed" in the SRS, so the prototype assumes:
 // higher priority wins; on a tie, Specific Date > Date Range > Selected Day > Base. Date Range is inclusive.
 const SPEC = { SPECIFIC_DATE: 4, DATE_RANGE: 3, SELECTED_DAY: 2, BASE: 1 };
-function pickRule(rules, d) {
+// Does this rule apply to the night d? (S064 Date Range is inclusive of both ends, S065 Selected Day uses 0 = Sunday to 6 = Saturday.)
+function matches(r, d) {
   const dow = new Date(d + 'T00:00:00Z').getUTCDay();
-  const m = rules.filter(r => r.approval_status === 'APPROVED' && (
-    r.rule_type === 'BASE' ||
+  return r.rule_type === 'BASE' ||
     (r.rule_type === 'SPECIFIC_DATE' && r.specific_date === d) ||
     (r.rule_type === 'DATE_RANGE' && d >= r.date_from && d <= r.date_to) ||
-    (r.rule_type === 'SELECTED_DAY' && (r.selected_days || []).includes(dow))));
-  m.sort((a, b) => ((b.priority ?? 0) - (a.priority ?? 0)) || (SPEC[b.rule_type] - SPEC[a.rule_type]));
+    (r.rule_type === 'SELECTED_DAY' && (r.selected_days || []).includes(dow));
+}
+// S068: an approved rule applies from effective_from and stops at valid_until (the first night of the rule that replaced it).
+const inForce = (r, d) => r.approval_status === 'APPROVED' && (!r.effective_from || d >= r.effective_from) && (!r.valid_until || d < r.valid_until);
+const order = (a, b) => ((b.priority ?? 0) - (a.priority ?? 0)) || (SPEC[b.rule_type] - SPEC[a.rule_type]);
+function pickRule(rules, d) {
+  const m = rules.filter(r => inForce(r, d) && matches(r, d)); m.sort(order);
   return m[0] || null;
 }
+// S066: every approved rule that matches the night, best first, and the ones that tie with the winner (same priority and same type).
+function explainNight(rules, d) {
+  const m = rules.filter(r => inForce(r, d) && matches(r, d)); m.sort(order);
+  const win = m[0] || null;
+  const ties = win ? m.slice(1).filter(r => (r.priority ?? 0) === (win.priority ?? 0) && r.rule_type === win.rule_type) : [];
+  return { date: d, rate: win ? win.rate_amount : null, rule: win ? win.rule_type : null, rate_rule_id: win ? win.rate_rule_id : null,
+    also_matched: m.slice(1).map(r => ({ rate_rule_id: r.rate_rule_id, rule_type: r.rule_type, rate_amount: r.rate_amount, priority: r.priority ?? 0 })), tie: ties.length > 0 };
+}
 const loadRules = (q, typeId) => q(`select rate_rule_id, rule_type, rate_amount::float8 rate_amount, date_from::text date_from, date_to::text date_to,
-  selected_days, specific_date::text specific_date, priority, approval_status from rate_rules where room_type_id=$1`, [typeId]);
+  selected_days, specific_date::text specific_date, priority, approval_status, effective_from::text effective_from, valid_until::text valid_until
+  from rate_rules where room_type_id=$1`, [typeId]);
 function priceStay(rules, from, to) {
   const nights = nightsList(from, to).map(d => { const r = pickRule(rules, d); return { date: d, rate: r ? r.rate_amount : null, rule: r ? r.rule_type : null }; });
   if (nights.some(n => n.rate === null)) return { nights, total: null };
@@ -50,7 +64,7 @@ async function availability(q, propertyId, { from, to, guests }) {
   const f = checkDates(from, to); f.check();
   const g = Number(guests) || 1, n = nightsList(from, to).length;
   const types = await q(`select t.room_type_id, t.name, t.max_guests, t.min_nights, t.description, t.facilities, t.layout_info, c.name category
-                         from room_types t join room_categories c using(category_id) where c.property_id=$1 order by t.name`, [propertyId]);
+                         from room_types t join room_categories c using(category_id) where c.property_id=$1 and t.approval_status='APPROVED' order by t.name`, [propertyId]);
   const out = [];
   for (const t of types) {
     const stock = await q(`select stock_date::text d, total_rooms, reserved_rooms from room_stock
@@ -80,9 +94,10 @@ async function createReservation(t, propertyId, p, userId) {
   if (p.guest_id && !isUuid(p.guest_id)) f.add('guest_id', 'Invalid guest id.');
   f.check();
 
-  const [rt] = await q(`select t.room_type_id, t.name, t.max_guests, t.min_nights from room_types t join room_categories c using(category_id)
+  const [rt] = await q(`select t.room_type_id, t.name, t.max_guests, t.min_nights, t.approval_status from room_types t join room_categories c using(category_id)
                         where t.room_type_id=$1 and c.property_id=$2`, [p.room_type_id, propertyId]);
   if (!rt) throw notFound('Room type not found.');
+  if (rt.approval_status !== 'APPROVED') throw conflict('This room type is waiting for approval and cannot be sold yet.', 'INVALID_STATE');
   const n = nightsList(p.check_in, p.check_out).length;
   if (guests > rt.max_guests) throw bad(`${rt.name} allows at most ${rt.max_guests} guests.`, [{ field: 'total_guests', message: `At most ${rt.max_guests} guests.` }]);
   if (n < rt.min_nights) throw bad(`${rt.name} requires at least ${rt.min_nights} nights.`, [{ field: 'check_out', message: `Minimum ${rt.min_nights} nights.` }]);
@@ -156,4 +171,4 @@ const freeRooms = (q, typeId, from, to, excludeId, mustBeAvailable) =>
     [typeId, from, to, excludeId || null]);
 
 module.exports = { iso, today, addDays, isDate, nightsList, audit, pickRule, loadRules, priceStay,
-  availability, createReservation, getReservation, recalcPayment, freeRooms, hashPassword };
+  availability, createReservation, matches, inForce, explainNight, getReservation, recalcPayment, freeRooms, hashPassword };
