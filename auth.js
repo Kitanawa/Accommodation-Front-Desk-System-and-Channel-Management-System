@@ -52,13 +52,19 @@ async function login(db, { email, password }, userAgent) {
 }
 
 // Express middleware: every request is checked against the database.
+const COOKIE = 'fds_session';
+const cookieToken = req => { for (const part of String(req.headers.cookie || '').split(';')) { const [k, ...v] = part.trim().split('='); if (k === COOKIE && v.length) return v.join('='); } return null; };
 const authenticate = db => async (req, res, next) => {
   try {
-    const m = /^Bearer (.+)$/.exec(req.headers.authorization || '');
-    if (!m) throw unauthenticated();
+    // A token is read from "Authorization: Bearer ..." or, for the browser app, from the HttpOnly session cookie.
+    const m = /^Bearer (.+)$/.exec(req.headers.authorization || ''), fromCookie = !m && cookieToken(req);
+    const token = m ? m[1] : fromCookie;
+    if (!token) throw unauthenticated();
+    // A cookie is sent by the browser on its own, so a changing request must carry the app's header (cross-site pages cannot add it).
+    if (fromCookie && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.get('x-app-request') !== '1') throw new HttpError(403, 'FORBIDDEN', 'Missing X-App-Request header.');
     const [s] = await db.q(`select s.session_id, s.revoked_at, u.user_id, u.property_id, u.full_name, u.email, u.can_approve_rates, u.is_active, r.name role,
         (s.expires_at < now()) as expired, (s.last_seen_at < now() - make_interval(mins => $2)) as idle, (s.last_seen_at < now() - interval '60 seconds') as stale
-      from user_sessions s join users u using(user_id) join roles r on r.role_id=u.role_id where s.token_hash=$1`, [sha256(m[1]), IDLE_MINUTES]);
+      from user_sessions s join users u using(user_id) join roles r on r.role_id=u.role_id where s.token_hash=$1`, [sha256(token), IDLE_MINUTES]);
     if (!s) throw unauthenticated();
     if (s.revoked_at || !s.is_active) throw unauthenticated('This session was ended. Please sign in again.', 'SESSION_REVOKED');
     if (s.expired || s.idle) {
@@ -79,4 +85,4 @@ async function revokeSessions(q, userId, reason, exceptSessionId, onlySessionId)
     [userId, reason, exceptSessionId || null, onlySessionId || null]);
   return rows.length;
 }
-module.exports = { login, authenticate, revokeSessions, registerFailedAttempt, publicUser, TTL_HOURS, IDLE_MINUTES, MAX_FAILS, LOCK_MINUTES };
+module.exports = { COOKIE, login, authenticate, revokeSessions, registerFailedAttempt, publicUser, TTL_HOURS, IDLE_MINUTES, MAX_FAILS, LOCK_MINUTES };

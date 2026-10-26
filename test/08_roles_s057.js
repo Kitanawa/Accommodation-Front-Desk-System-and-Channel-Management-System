@@ -5,6 +5,7 @@ const P = require('../permissions');
 const { hashPassword } = require('../password');
 const NIL = '00000000-0000-4000-8000-000000000000';
 const path = e => e.p.replace('{id}', NIL);
+const codeOf = b => b.error && typeof b.error === 'object' ? b.error.code : b.code;   // the web app endpoints send { error: 'text', code }
 const ROLE = { admin: 'ADMINISTRATOR', manager: 'OWNER_MANAGER', frontdesk: 'FRONT_DESK' };
 
 (async () => {
@@ -13,7 +14,7 @@ const ROLE = { admin: 'ADMINISTRATOR', manager: 'OWNER_MANAGER', frontdesk: 'FRO
 
   // 1) no token: every protected endpoint says 401, never data and never 403
   let bad = [];
-  for (const e of endpoints.filter(e => e.who !== 'public')) { const r = await api(e.m, path(e), e.body ? {} : undefined); if (r.status !== 401 || r.body.error.code !== 'UNAUTHENTICATED') bad.push(`${e.m} ${e.p} -> ${r.status}`); }
+  for (const e of endpoints.filter(e => e.who !== 'public')) { const r = await api(e.m, path(e), e.body ? {} : undefined); if (r.status !== 401 || codeOf(r.body) !== 'UNAUTHENTICATED') bad.push(`${e.m} ${e.p} -> ${r.status}`); }
   ok(bad.length === 0, `all ${endpoints.filter(e => e.who !== 'public').length} protected endpoints refuse a request with no token (401)` + (bad.length ? ': ' + bad.join('; ') : ''));
   bad = [];
   for (const e of endpoints.filter(e => e.who !== 'public')) { const r = await api(e.m, path(e), e.body ? {} : undefined, 'not-a-real-token'); if (r.status !== 401) bad.push(`${e.m} ${e.p} -> ${r.status}`); }
@@ -25,7 +26,7 @@ const ROLE = { admin: 'ADMINISTRATOR', manager: 'OWNER_MANAGER', frontdesk: 'FRO
   for (const e of gated) for (const who of Object.keys(users)) {
     const allowed = P.can(users[who], e.perm) || (e.perm === 'users.manage_frontdesk' && who !== 'frontdesk');
     const r = await api(e.m, path(e), e.body ? {} : undefined, who); cells++;
-    const got403 = r.status === 403 && r.body.error.code === 'FORBIDDEN';
+    const got403 = r.status === 403 && codeOf(r.body) === 'FORBIDDEN';
     if (allowed === got403) bad.push(`${who} ${e.m} ${e.p}: expected ${allowed ? 'allowed' : '403'}, got ${r.status}`);
   }
   ok(bad.length === 0, `role matrix: ${gated.length} gated endpoints x 3 roles = ${cells} calls, each allowed or 403 exactly as the SRS matrix says` + (bad.length ? ': ' + bad.slice(0, 4).join('; ') : ''));

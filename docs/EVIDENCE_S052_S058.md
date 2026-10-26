@@ -2,7 +2,7 @@
 
 Paste each work note into column P of the Subtask sheet. Do not set Progress to 100% or enter a Completed date until the reviews below have happened. Estimated and logged hours are yours to fill in. Nothing here has been reviewed by a teammate.
 
-Automated checks: `npm test` runs 281 checks in 9 files, all passing, on the embedded PostgreSQL engine (PGlite). They have not been run against a full PostgreSQL server.
+Automated checks: `npm test` runs 518 checks in 11 files (M08 and M09), all passing, on the embedded PostgreSQL engine (PGlite). The same suite also passed on a real PostgreSQL 16.15 server (one local test server, trust login) with `npm run test:pg`. It has not yet been run on the team's own PostgreSQL setup: Ivan's S059 check.
 
 ## S052 ERD
 > ERD of the 17 SRS section 5 entities, relationships as 1..1 ----> 1..n, Mermaid + PNG + review workbook, based on SRS Draft 2 only. Pending: teammate review.
@@ -18,7 +18,7 @@ Files: `erd/Data_Dictionary_S052_S053_SRS_only.md` (section "S053 tables" and th
 > Migrations 001_init and 002_auth with down scripts, runner, anonymous fixtures. 51 checks pass (`test/01`, `test/02`). Pending: Ivan runs it against a real DATABASE_URL.
 
 ## S055 API contracts, identifiers and response errors
-> API contract v0.3: UUIDs, one error shape with 19 codes, role matrix, 36 endpoints, OpenAPI validates, drift test. Checks: `test/03`, `04`, `05`, `06` (98). Pending: Qiwei confirms he can build against it; Eric confirms section 9.
+> API contract v0.5: UUIDs, one error shape with 19 codes, role matrix, 64 endpoints (56 main + 8 for the FDS web app, including M09), OpenAPI validates, drift test. Checks: `test/03`, `04`, `05`, `06` (98). Pending: Qiwei confirms he can build against it; Eric confirms section 9.
 
 ## S056 Authentication, password hashing, session revocation
 > Login with scrypt hashing (N=32768, auto-upgrade), random tokens stored only as SHA-256, 8 h lifetime and 60 min idle, lockout after 5 wrong passwords for 15 min, list / end / end-others sessions, immediate effect of deactivation and role change. 31 checks in `test/07_auth_s056.js`. Pending: Eric confirms session settings.
@@ -29,9 +29,12 @@ Files: `erd/Data_Dictionary_S052_S053_SRS_only.md` (section "S053 tables" and th
 ## S058 Staff account creation and password validation
 > Create / edit / deactivate / reset staff accounts with role limits (Manager manages Front Desk only), field-level validation, duplicate email check ignoring case, last-Administrator and self protection, password policy (10 to 128 chars, letter + number, not common, not own name or email) with public policy endpoint, change own password. 80 checks in `test/09_staff_s058.js`. Pending: Eric confirms the password policy (SRS sets none).
 
+## Connection to the FDS web app (apps/fds-web)
+> Added the endpoints the web app calls (`/api/auth/*`, `/api/staff*`): cookie sign-in (HttpOnly, SameSite=Lax), role names admin/manager/front_desk, plain-text errors, first-administrator setup, phone on staff accounts (migration 003). 61 checks in `test/10_frontend_compat.js`. Verified with the real web app in headless Chromium: sign in, list, add, edit, disable, duplicate email, sign out. Only the sign-in and Staff screens use the API; the other screens still use browser demo data.
+
 ## What is not done and is not claimed
 - No teammate has reviewed anything. No hours are logged.
 - No front end. All tests call the API directly.
-- Not run on a full PostgreSQL server, only the embedded engine.
+- Run on one real PostgreSQL 16.15 test server, but not on the team's own database setup (Ivan, S059).
 - The ERD and workbook do not yet include `user_sessions` and the five new `users` columns.
 - Sessions are a database table, not signed tokens; the SRS does not say which it wants.

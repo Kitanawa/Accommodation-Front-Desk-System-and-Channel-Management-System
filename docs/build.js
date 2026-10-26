@@ -52,7 +52,7 @@ function openapi() {
   comps.Error = { type: 'object', required: ['error'], properties: { error: { type: 'object', required: ['code', 'message', 'request_id'], properties: {
     code: { type: 'string', enum: Object.keys(CODES) }, message: { type: 'string' }, request_id: { type: 'string', format: 'uuid' },
     fields: { type: 'array', description: 'Present for VALIDATION_ERROR and some conflicts.', items: { type: 'object', required: ['field', 'message'], properties: { field: { type: 'string' }, message: { type: 'string' } } } } } } } };
-  return { openapi: '3.0.3', info: { title: 'FDS Backend API', version: '0.3.0', description: 'Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.' },
+  return { openapi: '3.0.3', info: { title: 'FDS Backend API', version: '0.5.0', description: 'Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.' },
     servers: [{ url: 'http://localhost:3000' }], security: [{ bearerAuth: [] }], tags: [...new Set(endpoints.map(e => e.tag))].map(name => ({ name })),
     paths, components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'Token from POST /api/login' } }, schemas: comps } };
 }
@@ -74,7 +74,7 @@ function markdown() {
   const w = s => L.push(s);
   w(`# FDS API Contract (S055)
 
-Version 0.3, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
+Version 0.5, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
 
 This file is generated from \`docs/contract.js\` (the same file produces \`openapi.yaml\`), and a test checks that every endpoint marked *implemented* really exists in the server and that none is missing here.
 
@@ -126,6 +126,22 @@ A resource id in a URL that is not a UUID returns \`400 VALIDATION_ERROR\` (fiel
 - A wrong password and an unknown email give the identical answer (\`INVALID_CREDENTIALS\`) so the API does not reveal which emails exist.
 - The role is read from the database on every request. A role change or deactivation applies immediately; the token does not carry the role.
 - Passwords are stored only as scrypt hashes. Tokens are stored only as SHA-256 hashes. Neither ever appears in a response.
+
+
+### 4a. The FDS web app (apps/fds-web)
+
+The web app signs in with a **cookie** and has its own formats, so these endpoints sit beside the main ones and call the same code. Every rule, audit record and session rule is shared.
+
+| | Main API | Web app endpoints (\`/api/auth/*\`, \`/api/staff*\`) |
+|---|---|---|
+| Credential | \`Authorization: Bearer <token>\` | HttpOnly cookie \`fds_session\` (also accepted by every other endpoint) |
+| Changing requests with the cookie | n/a | must send the header \`X-App-Request: 1\`, else \`403 FORBIDDEN\` |
+| Role names | \`ADMINISTRATOR\`, \`OWNER_MANAGER\`, \`FRONT_DESK\` | \`admin\`, \`manager\`, \`front_desk\` |
+| Account state | \`is_active\` true / false | \`status\` \`active\` / \`disabled\` (\`pending\` is not supported) |
+| Errors | \`{ "error": { "code", "message", "fields", "request_id" } }\` | \`{ "error": "text", "code", "fields", "request_id" }\`: the text joins the field messages |
+
+The cookie is \`HttpOnly; SameSite=Lax; Path=/\` and lasts as long as the session. Set \`COOKIE_SECURE=true\` (or serve over HTTPS behind a proxy that sends \`X-Forwarded-Proto: https\`) to add \`Secure\`.
+Run the API on port **3001** (\`set PORT=3001\`): that is where the web app's dev server forwards \`/api\`.
 
 ## 5. Roles, permissions and property scope
 
@@ -221,9 +237,15 @@ Please confirm or change these in review; each one is easy to change before the 
 3. **"Manager: Limited" for user management** means Front Desk accounts only (section 5).
 4. **Audit log** is visible to Administrator and Manager only (the SRS matrix has no audit row).
 5. **Rate precedence** (FR-17 is "to be confirmed"): higher \`priority\` wins; on a tie Specific Date, then Date Range, then Selected Day, then Base. Date Range includes both end dates.
-6. **A changed approved Base Rate** is refused (\`BASE_RATE_EXISTS\`), because the SRS does not say how a new rate replaces an approved one.
+6. **Changing an approved rate** (S068): the change is a new PENDING rate (\`POST /api/rates/{id}/revise\`). The approved rate stays in force until the change is approved and its \`effective_from\` night arrives (default: the day it is approved). A second approved Base Rate created the old way is still refused (\`BASE_RATE_EXISTS\`). Existing reservations keep the price recorded when they were made.
 7. **No pagination yet**, lists return at most 200 rows.
 8. **Statuses** (\`CONFIRMED\`, \`CHECKED_IN\`, \`CHECKED_OUT\`, \`CANCELLED\`; \`UNPAID\`, \`PARTIAL\`, \`PAID\`) come from the functional requirements; the SRS does not list them.
+9. **The web app's wording differs:** its Staff screen says managers can manage managers, and offers status "Pending Approval". This server follows the SRS reading in item 3 (a Manager manages Front Desk accounts only) and has no pending state; both are refused with a clear message. A changed email address is also refused for now.
+10. **Room types need approval before they are sold** (S067): a new room type is submitted with its rates, stays PENDING, and one approval makes the type and its pending rates live. Front Desk sees approved types only. Editing details of a room type takes effect at once; only rates need approval. The SRS only names Pending and Approved, so there is no "Rejected": a pending item is withdrawn instead.
+11. **Rate validation** (S063 to S065): a rate is more than 0, at most 9,999,999.99, with up to 2 decimals, in the property currency (a different \`currency_code\` is refused). A Date Range covers at most 366 days; \`selected_days\` lists each day once; \`priority\` is 0 to 100.
+12. **Rate ties** (S066): precedence is item 5. When a new rule has the same type and priority as an approved rule on an overlapping night, the response carries a \`PRIORITY_TIE\` warning, and the preview lists tied nights. The rule is still created.
+13. **Add-ons** (S069) are not an SRS entity; they are modelled as their own list with their own approval, separate from room types. A new price on an approved add-on waits as \`pending_unit_price\`. A charge from an add-on stores the price of that moment. Quantity defaults to 1 per stay, the number of nights per night, or the number of guests per guest.
+14. **Rooms** (S062): room numbers are unique across the system, ignoring upper/lower case (the system serves one property). Floor is -5 to 200. A room's type cannot change while the room is assigned to a confirmed or in-house reservation, and a room that has been used for a stay cannot be deleted. Adding a room does not change room stock.
 
 ## 10. Change log
 
@@ -231,6 +253,8 @@ Please confirm or change these in review; each one is easy to change before the 
 |---|---|
 | 0.2 | First contract: conventions, identifiers, error catalog, 25 implemented endpoints, 11 planned. |
 | 0.3 | S056 and S058 built: the 11 planned endpoints (sessions, password rules and change, staff accounts) are now implemented. No field removed or renamed. |
+| 0.4 | Added the web app endpoints (section 4a) and \`phone\` on staff accounts (migration 003). Nothing removed or renamed. |
+| 0.5 | M09 (S060 to S069): room categories, room type details and approval, rooms with floors, rate validation, rate changes that wait for approval, price preview, add-ons (migration 004). New fields on existing responses: \`RoomType\` (category_id, photos, approval_status), \`Room\` (floor, room_type_id), \`Rate\` (room_type_id, currency_code, supersedes_id, effective_from, valid_until, in_force), \`RateCreated.warnings\`, charge type \`ADD_ON\`. Nothing removed or renamed. |
 `);
   return L.join('\n');
 }
