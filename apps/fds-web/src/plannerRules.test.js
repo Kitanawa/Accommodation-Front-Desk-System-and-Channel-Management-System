@@ -43,3 +43,19 @@ test('early departure frees future monthly and physical stock, retaining past ni
  assert.equal(bookingInPlanner(legacy,'2026-10-21','2026-10-20'),false)
  assert.equal(legacy.end,'2026-10-25')
 })
+
+import {rollingDates,dailySummary} from './plannerRules.js'
+test('rolling planner fills 14 days across month/year and leap boundaries',()=>{
+ assert.equal(rollingDates('2026-10-24').at(-1),'2026-11-06')
+ assert.equal(rollingDates('2026-12-25').at(-1),'2027-01-07')
+ assert.equal(rollingDates('2028-02-28',3).at(-1),'2028-03-01')
+})
+test('stop sell preserves bookings and occupancy but releases no inventory after cancellations',()=>{
+ const closed={...room,stopSellDates:[{date:'2026-10-15',reason:'Close sales'}]}
+ const n=monthlyInventory(closed,'2026-10-15',[booking],{},[closed])
+ assert.equal(n.remaining,0);assert.equal(n.reserved,2)
+ const summary=dailySummary([closed],'2026-10-15',[booking],{},'2026-10-15')
+ assert.equal(summary.occupancy,50);assert.equal(summary.remaining,0)
+ assert.equal(monthlyInventory(closed,'2026-10-15',[],{},[closed]).remaining,0)
+ assert.equal(monthlyInventory(closed,'2026-10-16',[],{},[closed]).remaining,4)
+})

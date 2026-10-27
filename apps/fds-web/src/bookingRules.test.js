@@ -58,13 +58,34 @@ test('extension rejects room conflicts, invalid dates and insufficient aggregate
 test('ledger computes exact cents, partial payment and settlement',()=>{
  const charged=addFolioEntry(inHouse,'charges',{id:'c',date:'2026-10-15',amount:'10.25',description:'Laundry'})
  const partial=addFolioEntry(charged,'payments',{id:'p',date:'2026-10-15',amount:'500.10',description:'Receipt 1',method:'Cash'})
- assert.deepEqual(folioTotals(partial),{charges:76025,paid:50010,balance:26015,status:'Partially Paid'})
- const settled=addFolioEntry(partial,'payments',{amount:'260.15',description:'Receipt 2',method:'Cash'})
+ assert.deepEqual(folioTotals(partial),{subtotal:76025,sst:4562,service:7603,total:88190,charges:88190,paid:50010,balance:38180,status:'Partially Paid'})
+ const settled=addFolioEntry(partial,'payments',{amount:'381.80',description:'Receipt 2',method:'Cash'})
  assert.equal(folioTotals(settled).balance,0)
  assert.equal(folioTotals(settled).status,'Paid')
 })
 test('ledger rejects overpayment and malformed amounts',()=>{
  for(const value of ['0','-1','NaN','1.001','1e3'])assert.throws(()=>amountCents(value))
- assert.throws(()=>addFolioEntry(inHouse,'payments',{amount:'750.01',description:'Overpayment'}))
+ assert.throws(()=>addFolioEntry(inHouse,'payments',{amount:'870.01',description:'Overpayment'}))
  assert.throws(()=>addFolioEntry(inHouse,'charges',{amount:'1',description:' '}))
+})
+
+test('payments separate generated receipts from references and permit cash without reference',()=>{
+ const cash=addFolioEntry(inHouse,'payments',{id:'cash-1',date:'2026-10-15',amount:'10',method:'Cash',paymentReference:''})
+ assert.equal(cash.payments.at(-1).receiptNo,'RCP-cash-1')
+ assert.equal(cash.payments.at(-1).paymentReference,'')
+ assert.throws(()=>addFolioEntry(inHouse,'payments',{id:'bank-1',amount:'10',method:'Bank transfer (record only)',paymentReference:'  '}),/payment reference/)
+ const bank=addFolioEntry(cash,'payments',{id:'bank-2',date:'2026-10-15',amount:'10',method:'Bank transfer (record only)',paymentReference:' TX-123 '})
+ assert.equal(bank.payments.at(-1).paymentReference,'TX-123')
+ assert.equal(bank.payments.at(-1).receiptNo,'RCP-bank-2')
+ assert.equal(bank.payments[0].receiptNo,'RCP-cash-1')
+})
+
+import {receiptCharges} from './bookingRules.js'
+test('SST and service charges apply independently to all charges, rounded to cents',()=>{
+ assert.deepEqual(receiptCharges(100000),{subtotal:100000,sst:6000,service:10000,total:116000})
+ const booking={total:250,charges:[{amountCents:5000}],payments:[{amountCents:34800}]}
+ assert.equal(folioTotals(booking).balance,0)
+ assert.equal(folioTotals(booking).sst,1800)
+ assert.equal(folioTotals(booking).service,3000)
+ assert.equal(booking.total,250)
 })

@@ -15,3 +15,10 @@ export function monthlyInventory(room,date,bookings,cleaning,rooms,asOf){
  const state=counts.remaining<0?'invalid':!isBookable(room)||allotment<=0?'unallocated':counts.remaining===0?'full':'available'
  return {...counts,allotment,state,reservations:eligible.filter(b=>b.room===room.id&&b.start<=date&&b.end>date)}
 }
+
+export function rollingDates(start,count=14){return Array.from({length:count},(_,i)=>new Date(Date.parse(start+'T12:00:00Z')+i*86400000).toISOString().slice(0,10))}
+export function dailySummary(rooms,date,bookings,cleaning,asOf){
+ const counts=rooms.filter(room=>isBookable(room)).map(room=>monthlyInventory(room,date,bookings,cleaning,rooms,asOf))
+ const capacity=counts.reduce((sum,n)=>sum+(n.operationalAllotment??n.allotment),0),reserved=counts.reduce((sum,n)=>sum+n.reserved,0)
+ return {remaining:counts.reduce((sum,n)=>sum+Math.max(0,n.remaining),0),occupancy:capacity?Math.round(reserved/capacity*100):0,reserved,capacity}
+}
