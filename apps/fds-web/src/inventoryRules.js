@@ -4,7 +4,9 @@ export function inventoryAt(room,date,bookings,cleaning={},allRooms=[room],ignor
  const physicalBlocked=physicalRooms(allRooms).filter(u=>u.type===room.id&&cleaning[u.id]?.status==='Blocked').length
  const datedBlocked=(room.blocks||[]).filter(b=>b.start<=date&&b.end>date).reduce((sum,b)=>sum+b.quantity,0)
  const reserved=bookings.filter(b=>b.id!==ignoreId&&occupiesInventory(b)&&b.room===room.id&&b.start<=date&&b.end>date).reduce((sum,b)=>sum+b.quantity,0)
- return {capacity,blocked:physicalBlocked+datedBlocked,reserved,remaining:capacity-physicalBlocked-datedBlocked-reserved}
+ const stopSell=(room.stopSellDates||[]).some(item=>item.date===date)
+ const blocked=physicalBlocked+datedBlocked+(stopSell?Math.max(0,capacity-physicalBlocked-datedBlocked-reserved):0)
+ return {capacity,blocked,reserved,remaining:capacity-blocked-reserved,...(stopSell?{stopSell,operationalAllotment:capacity-physicalBlocked-datedBlocked}:{})}
 }
 export function validateRoomChange(rooms,next,bookings,cleaning,today){
  if(next.length<rooms.length||rooms.some((r,i)=>r.id!==next[i].id))throw new Error('Room type order and identifiers must remain unchanged.')

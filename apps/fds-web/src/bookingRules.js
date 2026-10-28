@@ -26,10 +26,14 @@ export function extendStay(b,end,rate,bookings,units,cleaning,stock,blocks=[]) {
  const allocations=allocationsFor(b).map((a,i,list)=>i===list.length-1?{...a,end}:a)
  return {...b,end,total:(Math.round(b.total*100)+extraCents)/100,allocations,extensions:[...(b.extensions||[]),{start:b.end,end,nights,amountCents:extraCents}]}
 }
+export function receiptCharges(subtotal){
+ const sst=Math.round(subtotal*6/100),service=Math.round(subtotal*10/100)
+ return {subtotal,sst,service,total:subtotal+sst+service}
+}
 export function folioTotals(b) {
- const charges=Math.round(b.total*100)+(b.charges||[]).reduce((sum,c)=>sum+c.amountCents,0)
- const paid=(b.payments||[]).reduce((sum,p)=>sum+p.amountCents,0)
- return {charges,paid,balance:charges-paid,status:charges-paid===0?'Paid':paid>0?'Partially Paid':'Unpaid'}
+ const breakdown=receiptCharges(Math.round(b.total*100)+(b.charges||[]).reduce((sum,c)=>sum+c.amountCents,0))
+ const charges=breakdown.total,paid=(b.payments||[]).reduce((sum,p)=>sum+p.amountCents,0)
+ return {...breakdown,charges,paid,balance:charges-paid,status:charges-paid===0?'Paid':paid>0?'Partially Paid':'Unpaid'}
 }
 export function amountCents(value) {
  if(!/^\d+(\.\d{1,2})?$/.test(String(value)))throw new Error('Enter an amount with up to two decimal places.')
@@ -41,7 +45,9 @@ export function addFolioEntry(b,kind,entry) {
  if(['Cancelled','No-show'].includes(statusOf(b)))throw new Error('This reservation cannot accept billing entries.')
  const cents=amountCents(entry.amount)
  if(kind==='payments'&&cents>folioTotals(b).balance)throw new Error('Payment cannot exceed the outstanding balance.')
- if(!entry.description?.trim())throw new Error('Enter a description or reference.')
- const record={id:entry.id,date:entry.date,description:entry.description.trim(),amountCents:cents,...(kind==='payments'?{method:entry.method}: {})}
+ if(kind==='charges'&&!entry.description?.trim())throw new Error('Enter a description.')
+ const reference=(entry.paymentReference??entry.description??'').trim()
+ if(kind==='payments'&&entry.method!=='Cash'&&!reference)throw new Error('Enter a payment reference for non-cash payments.')
+ const record={id:entry.id,date:entry.date,description:kind==='payments'?reference:entry.description.trim(),amountCents:cents,...(kind==='payments'?{method:entry.method,paymentReference:reference,receiptNo:`RCP-${entry.id||crypto.randomUUID()}`}: {})}
  return {...b,[kind]:[...(b[kind]||[]),record]}
 }
