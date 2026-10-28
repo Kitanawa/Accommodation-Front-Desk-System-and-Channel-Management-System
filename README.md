@@ -16,6 +16,7 @@ Shared project structure for the Front Desk System, manager mobile app, direct b
 | `infra/docker` | Local service definitions | Reserved |
 | `infra/nginx` | Hostinger reverse proxy configuration | Reserved |
 | `docs` | Integration documentation | See `docs/project-structure.md` |
+| `apps/ai-service` | Front desk assistant service (LLM understanding, fixed-text replies; read-only) | Working with the popup in `apps/fds-web`. Room and booking data not connected yet. See `apps/ai-service/README.md` |
 
 ## Install and run (frontend only, demo data)
 
@@ -75,6 +76,10 @@ Open http://127.0.0.1:5176/ and sign in with `admin@fds.test` / `Orchid-Demo-202
 Other demo accounts (synthetic): `manager@fds.test` / `Lantern-Demo-2026`, `frontdesk@fds.test` / `Meadow-Demo-2026`.
 
 To check that the frontend is really using the API, sign in with `admin@fds.test` (it exists only in the API database), then stop the API and reload: sign-in and the Staff list should fail. More checks and troubleshooting: `apps/api/README.md`.
+
+## Run the AI assistant
+
+In `apps\ai-service`: `npm install`, `copy .env.example .env`, put your own OpenAI key in `.env`, then `npm start` (port 3002). Run `npm run dev` in the root as usual; the assistant is the "Assistant" button at the bottom right of every page. Without a key, set `LLM_PROVIDER=rules` (English only).
 
 ## Integration status
 

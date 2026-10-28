@@ -1,0 +1,24 @@
+.ai-popup{position:fixed;right:22px;bottom:22px;z-index:8;font-size:13px}
+.ai-launcher{display:flex;align-items:center;gap:8px;border:0;border-radius:999px;background:var(--primary);color:white;padding:12px 18px;font-weight:600;font-size:13px;box-shadow:0 6px 20px #14283F40}
+.ai-launcher:hover{background:var(--primary-hover)}
+.ai-window{width:380px;max-width:calc(100vw - 32px);height:min(560px,calc(100vh - 44px));display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 40px #14283F40;overflow:hidden}
+.ai-header{height:auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;background:var(--navy);color:white;border:0}
+.ai-header strong{display:block;font-size:14px}
+.ai-header small{display:block;font-size:10px;color:#bfd0e4;margin-top:4px}
+.ai-header-actions{display:flex;align-items:center;gap:6px}
+.ai-text-button,.ai-close{border:0;background:transparent;color:#d6e2ef;border-radius:5px}
+.ai-text-button{font-size:11px;padding:6px 8px}
+.ai-close{font-size:22px;line-height:1;padding:2px 8px}
+.ai-text-button:hover:not(:disabled),.ai-close:hover{background:var(--navy-raised);color:white}
+.ai-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;background:var(--page)}
+.ai-empty{margin:auto 0;text-align:center;color:var(--muted);font-size:12px;line-height:1.7;padding:0 12px}
+.ai-message{max-width:85%;padding:10px 12px;border-radius:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.ai-message.user{align-self:flex-end;background:var(--primary);color:white;border-bottom-right-radius:3px}
+.ai-message.assistant{align-self:flex-start;background:white;border:1px solid var(--border);border-bottom-left-radius:3px}
+.ai-form{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border);background:var(--surface)}
+.ai-form input{margin:0;flex:1;font-size:13px}
+.ai-form .primary{min-height:42px;padding:0 16px}
+@media(max-width:800px){.ai-popup{right:12px;bottom:12px}.ai-window{width:calc(100vw - 24px);height:min(560px,calc(100vh - 24px))}}
+@media print{.ai-popup{display:none!important}}
+.ai-meta{display:block;margin-top:6px;font-size:10px;color:var(--muted)}
+.ai-pending{color:var(--muted);font-style:italic}
