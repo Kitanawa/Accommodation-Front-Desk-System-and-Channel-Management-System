@@ -4,7 +4,7 @@ Version 0.5, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end
 
 This file is generated from `docs/contract.js` (the same file produces `openapi.yaml`), and a test checks that every endpoint marked *implemented* really exists in the server and that none is missing here.
 
-**Status:** all 64 endpoints run today.
+**Status:** all 65 endpoints run today.
 
 ## 1. Conventions
 
@@ -286,6 +286,7 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | Endpoint | Who | Status | What it does |
 |---|---|---|---|
 | `GET /api/availability` | All roles | Implemented | Rooms left, nightly rates and total for a stay, per room type. |
+| `GET /api/calendar` | All roles | Implemented | Read-only room calendar for the Booking page: for each approved room type and each night, rooms left, total rooms and the nightly rate. |
 | `POST /api/reservations` | All roles | Implemented | Create a reservation (also creates its folio and one ROOM charge per night). |
 | `GET /api/reservations` | All roles | Implemented | List reservations (newest check-in first, at most 200). |
 | `GET /api/reservations/{id}` | All roles | Implemented | One reservation with its folio: charges, payments and balance. |
@@ -299,6 +300,13 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `from` | date | Yes | Check-in, not in the past. |
 | `to` | date | Yes | Check-out, after from. |
 | `guests` | int | No | Default 1. |
+
+**`GET /api/calendar`** returns 200 `Calendar`. Errors: `VALIDATION_ERROR`.
+
+| Query parameters | Type | Required | Notes |
+|---|---|---|---|
+| `from` | date | Yes | First night shown. |
+| `days` | int | No | Number of nights, 1 to 62. Default 14. |
 
 **`POST /api/reservations`** returns 201 `ReservationCreated`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `NO_APPROVED_RATE`, `NO_STOCK`, `SOLD_OUT`.
 

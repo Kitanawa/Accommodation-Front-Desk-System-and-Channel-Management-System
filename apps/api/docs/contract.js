@@ -28,6 +28,9 @@ const schemas = {
   DashboardRow: { reservation_id: 'uuid', reservation_ref: 'string', full_name: 'string', room_type: 'string', room_number: 'string?', check_in: 'date', check_out: 'date', status: E.resStatus, payment_status: E.payStatus },
   Dashboard: { today: 'date', arrivals: 'ref:DashboardRow[]', departures: 'ref:DashboardRow[]', in_house: 'int', occupied: 'int', total_rooms: 'int', pending_rates: 'int?' },
   NightRate: { date: 'date', rate: 'number?', rule: 'string?' },
+  CalendarCell: { date: 'date', left: 'int', total: 'int', rate: 'number?' },
+  CalendarRoomType: { room_type_id: 'uuid', name: 'string', max_guests: 'int', min_nights: 'int', description: 'string?', cells: 'ref:CalendarCell[]' },
+  Calendar: { currency: 'string', from: 'date', to: 'date', room_types: 'ref:CalendarRoomType[]' },
   AvailabilityItem: { room_type_id: 'uuid', name: 'string', category: 'string', max_guests: 'int', min_nights: 'int', nights: 'int', rooms_left: 'int', total: 'number?', nightly: 'ref:NightRate[]', bookable: 'bool', reasons: 'string[]' },
   ReservationCreated: { reservation_id: 'uuid', reservation_ref: 'string' },
   Charge: { charge_id: 'uuid', charge_type: 'enum:ROOM|ADDITIONAL|ADD_ON', description: 'string', quantity: 'number', unit_price: 'number', amount: 'number', charged_at: 'datetime' },
@@ -95,6 +98,8 @@ const endpoints = [
   // ---- availability and reservations
   { m: 'GET', p: '/api/availability', tag: 'Reservations', perm: 'reservations.manage', status: 'implemented', sum: 'Rooms left, nightly rates and total for a stay, per room type.',
     query: { from: f('date', 1, 'Check-in, not in the past.'), to: f('date', 1, 'Check-out, after from.'), guests: f('int', 0, 'Default 1.') }, ok: [200, 'AvailabilityItem[]'], err: ['VALIDATION_ERROR'] },
+  { m: 'GET', p: '/api/calendar', tag: 'Reservations', perm: 'reservations.manage', status: 'implemented', sum: 'Read-only room calendar for the Booking page: for each approved room type and each night, rooms left, total rooms and the nightly rate.',
+    query: { from: f('date', 1, 'First night shown.'), days: f('int', 0, 'Number of nights, 1 to 62. Default 14.') }, ok: [200, 'Calendar'], err: ['VALIDATION_ERROR'] },
   { m: 'POST', p: '/api/reservations', tag: 'Reservations', perm: 'reservations.manage', status: 'implemented', sum: 'Create a reservation (also creates its folio and one ROOM charge per night).',
     body: { guest: f('object', 0, 'New guest: ' + Object.keys(guest).join(', ') + '. full_name is required.'), guest_id: f('uuid', 0, 'Use an existing guest instead of guest.'), room_type_id: f('uuid', 1), check_in: f('date', 1), check_out: f('date', 1, 'Exclusive: the night of this date is not booked.'),
       total_guests: f('int', 1), source_id: f('int', 0, 'From GET /api/sources. Default 1.'), estimated_arrival: f('time'), special_requests: f('string'), notes: f('string') },

@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "description": "Front desk assistant service: reads a staff message, understands it (LLM or rules), validates it and writes a fixed-text reply. Read-only; never books, changes or cancels.",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "verify-readonly": "node scripts/verify-readonly.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "pg": "^8.23.1"
   }
 }

@@ -42,6 +42,7 @@ app.get('/api/me', auth, (req, res) => res.json(A.publicUser(req.user)));
 // ---------- front end (apps/fds-web): cookie sign-in and /api/staff, translated onto the endpoints below ----------
 require('./frontend-compat')(app, { getDb: () => db, auth, need });
 require('./catalog')(app, { getDb: () => db, auth, need, wrap, validateRate: b => validateRate(b), checkCurrency: (...a) => checkCurrency(...a) });
+require('./calendar')(app, { getDb: () => db, auth, need, wrap });
 
 // ---------- reference data ----------
 app.get('/api/sources', auth, wrap(async (req, res) => res.json(await q('select source_id, code, name from booking_sources order by source_id'))));

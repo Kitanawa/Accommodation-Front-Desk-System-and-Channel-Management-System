@@ -944,6 +944,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/calendar:
+    get:
+      tags:
+        - Reservations
+      summary: "Read-only room calendar for the Booking page: for each approved room type and each night, rooms left, total rooms and the nightly rate."
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_calendar
+      x-status: implemented
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: First night shown.
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Number of nights, 1 to 62. Default 14.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Calendar"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/reservations:
     post:
       tags:
@@ -3769,6 +3816,53 @@ components:
         rule:
           type: string
           nullable: true
+    CalendarCell:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        left:
+          type: integer
+        total:
+          type: integer
+        rate:
+          type: number
+          nullable: true
+    CalendarRoomType:
+      type: object
+      properties:
+        room_type_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        max_guests:
+          type: integer
+        min_nights:
+          type: integer
+        description:
+          type: string
+          nullable: true
+        cells:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarCell"
+    Calendar:
+      type: object
+      properties:
+        currency:
+          type: string
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        room_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarRoomType"
     AvailabilityItem:
       type: object
       properties:

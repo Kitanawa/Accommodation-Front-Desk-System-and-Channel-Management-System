@@ -22,3 +22,7 @@
 @media print{.ai-popup{display:none!important}}
 .ai-meta{display:block;margin-top:6px;font-size:10px;color:var(--muted)}
 .ai-pending{color:var(--muted);font-style:italic}
+.ai-followups { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 4px; }
+.ai-chip { border: 1px solid rgba(127, 127, 127, 0.55); background: rgba(127, 127, 127, 0.14); color: inherit; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer; }
+.ai-chip:hover { background: rgba(127, 127, 127, 0.28); }
+.ai-chip:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

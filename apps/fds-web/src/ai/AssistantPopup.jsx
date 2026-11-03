@@ -11,21 +11,32 @@ const NOTE = { openai: 'Understood by the AI model', local: 'Understood by the l
 // The popup chat. It sends the staff message (and the names of the bookable room types) to the AI service
 // and shows the reply. The service is read-only: it never books, changes or cancels anything.
 // Room data is not connected yet, so for now replies only say what the assistant understood.
-export default function AssistantPopup({ user, roomTypes = [] }) {
+export default function AssistantPopup({ user, roomTypes = [], onAction }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState(() => loadChat(localStorage, user.id))
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [followUp, setFollowUp] = useState(null)
   const endRef = useRef(null)
   const inputRef = useRef(null)
 
   useEffect(() => { saveChat(localStorage, user.id, messages) }, [messages, user.id])
   useEffect(() => { if (open) { endRef.current?.scrollIntoView?.({ block: 'end' }); inputRef.current?.focus() } }, [open, messages, busy])
 
-  async function send(event) {
+  function send(event) {
     event.preventDefault()
-    const question = text.trim()
+    ask(text.trim())
+  }
+
+  function choose(button) {
+    if (busy) return
+    if (button.type === 'select_stay') onAction?.(button)
+    else if (button.type === 'ask') ask(button.message, followUp?.lang)
+  }
+
+  async function ask(question, forcedLang) {
     if (!question || busy) return
+    setFollowUp(null)
     setMessages(list => [...list, { id: newId(), role: 'user', text: question }])
     setText('')
     setBusy(true)
@@ -33,9 +44,14 @@ export default function AssistantPopup({ user, roomTypes = [] }) {
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     let answer = { id: newId(), role: 'assistant', text: UNAVAILABLE }
     try {
-      const response = await fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, roomTypes }), signal: controller.signal })
+      const response = await fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, roomTypes, lang: forcedLang }), signal: controller.signal })
       const data = await response.json().catch(() => null)
-      if (response.ok && typeof data?.reply === 'string') answer = { id: newId(), role: 'assistant', text: data.reply, meta: NOTE[data.source] || (typeof data.source === 'string' ? `Understood by ${data.source}` : undefined) }
+      if (response.ok && typeof data?.reply === 'string') {
+        const follow = data.followUp && typeof data.followUp.text === 'string' ? data.followUp : null
+        answer = { id: newId(), role: 'assistant', text: follow ? `${data.reply}\n\n${follow.text}` : data.reply, meta: NOTE[data.source] || (typeof data.source === 'string' ? `Understood by ${data.source}` : undefined) }
+        setFollowUp(follow && Array.isArray(follow.buttons) && follow.buttons.length ? { buttons: follow.buttons, lang: data.lang } : null)
+        if (data.action) onAction?.(data.action)
+      }
       else if (response.status === 400 && typeof data?.error === 'string') answer = { id: newId(), role: 'assistant', text: data.error }
     } catch {
       /* The service is not running or did not answer in time: the default message above is shown. */
@@ -58,7 +74,7 @@ export default function AssistantPopup({ user, roomTypes = [] }) {
   return <div className="ai-popup">
     <section className="ai-window" role="dialog" aria-label="Front desk assistant" onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}>
       <header className="ai-header">
-        <div><strong>Front desk assistant</strong><small>Preview · room data not connected yet</small></div>
+        <div><strong>Front desk assistant</strong><small>Read-only · English, Malay, Mandarin</small></div>
         <div className="ai-header-actions">
           <button type="button" className="ai-text-button" onClick={clear} disabled={!messages.length}>Clear</button>
           <button type="button" className="ai-close" aria-label="Close the assistant" onClick={() => setOpen(false)}>×</button>
@@ -68,6 +84,7 @@ export default function AssistantPopup({ user, roomTypes = [] }) {
         {!messages.length && <p className="ai-empty">Ask about room availability and rates for a stay. For example: “single room 25 to 30 Nov”. You can write in English, Malay or Mandarin.</p>}
         {messages.map(m => <div key={m.id} className={`ai-message ${m.role}`}>{m.text}{m.meta && <small className="ai-meta">{m.meta}</small>}</div>)}
         {busy && <div className="ai-message assistant ai-pending">Thinking…</div>}
+        {!busy && followUp && <div className="ai-followups">{followUp.buttons.map((b, i) => <button key={i} type="button" className="ai-chip" onClick={() => choose(b)}>{b.label}</button>)}</div>}
         <div ref={endRef} />
       </div>
       <form className="ai-form" onSubmit={send}>
