@@ -10,9 +10,11 @@
     "migrate:down": "node cli.js rollback 1",
     "migrate:status": "node cli.js status",
     "seed": "node cli.js seed",
+    "seed:fds": "node cli.js seed fds",
     "db:reset": "node cli.js reset",
     "docs": "node docs/build.js",
-    "test:pg": "node test/run.js"
+    "test:pg": "node test/run.js",
+    "demo": "node demo.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",

@@ -1,4 +1,4 @@
-# FDS Backend (M08 and M09, S052 to S069): How to Run
+# FDS Backend (M08, M09, M11, M13, M17, M21, S052 to S180, Chester's part): How to Run
 
 Needs Node.js 18 or newer. Commands are for Windows Command Prompt, run inside this folder.
 
@@ -10,9 +10,15 @@ npm test
 npm start
 ```
 
-- `npm test` should end with `TOTAL: 518 passed, 0 failed, 11 test files`.
+- `npm test` should end with `TOTAL: 893 passed, 0 failed, 14 test files`.
 - `npm start` runs the API at http://localhost:3000. Stop it with Ctrl+C.
 - Data is kept in a `data/` folder. No database install needed.
+
+Optional settings (set in the command window): `PAYMENT_WEBHOOK_SECRET` (signature secret for the payment webhook; set it in production), `HOLD_SWEEP_SECONDS` (default 30), `PUBLIC_LIMIT_READ` (default 120 per minute per IP) and `PUBLIC_LIMIT_BOOK` (default 20).
+
+### Demo pages (no change to the team's front ends)
+
+With `npm start` running, open http://localhost:3000/demo/manager.html (approval inbox: sign in, approve, reject with reason) and http://localhost:3000/demo/booking.html (guest booking: availability, hold, pay, cancel). They call the real API. The booking page also plays the payment gateway with the development webhook secret, so it is for demos only. These pages are not served when `NODE_ENV=production`.
 
 ## 2. Run with a real PostgreSQL server
 
@@ -28,8 +34,8 @@ npm start
 
 - Use your own PostgreSQL user and password, with no quotes.
 - Special characters in the password must be encoded: `@` is `%40`, `#` is `%23`, `/` is `%2F`, `:` is `%3A`, `%` is `%25`.
-- `npm run migrate` creates all 19 tables. You do not create tables by hand.
-- Never commit a real password. Use `.env` (copy `.env.example`).
+- `npm run migrate` creates all 32 tables. You do not create tables by hand.
+- Never commit a real password. The app does not read a `.env` file: set `DATABASE_URL` in the command window as shown above.
 
 To run the whole test suite on a real PostgreSQL server, give it a connection string to any database on that server (the user must be allowed to create databases). Each test file gets its own new database, dropped afterwards:
 
@@ -97,12 +103,24 @@ curl -b c.txt http://127.0.0.1:3001/api/staff
 The new person should appear in the JSON.
 5. Sign in as `frontdesk@fds.test`. Staff management should be refused.
 
+## Live demo script
+
+With the API running (`npm start`), open a second Command Prompt in this folder:
+
+```
+npm run db:reset
+node demo.js
+```
+
+It signs in as the three demo roles and walks through M09 (room type, approval, price preview) and M11 (availability, hold, reservation, cancel, check-in, payment, check-out), printing each request and answer. Press Enter for the next step, or run `node demo.js --auto`. Run `npm run db:reset` first, and restart the API after it. For another address: `set API_URL=http://localhost:3001`.
+
 ## Other commands
 
 | Command | What it does |
 |---|---|
 | `npm run migrate:status` | Shows which migrations are applied |
 | `npm run migrate:down` | Rolls back the latest migration |
+| `npm run seed:fds` | Loads the fixtures with tax 16% (SST 6% + service 10%), as the staff web app shows it |
 | `npm run db:reset` | Wipes, migrates and seeds again (deletes data) |
 | `npm run docs` | Rebuilds `docs\API_CONTRACT.md` and `docs\openapi.yaml` |
 

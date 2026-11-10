@@ -1,0 +1,137 @@
+erDiagram
+    properties ||--o{ users : employs
+    roles ||--o{ users : assigned
+    properties ||--o{ room_categories : has
+    room_categories ||--o{ room_types : groups
+    room_types ||--o{ rooms : "has units"
+    room_statuses ||--o{ rooms : "current status"
+    room_types ||--o{ room_stock : "stock per date"
+    properties ||--o{ reservations : receives
+    guests ||--o{ reservations : makes
+    booking_sources ||--o{ reservations : "came from"
+    reservations ||--|{ reservation_rooms : includes
+    room_types ||--o{ reservation_rooms : "booked as"
+    rooms |o--o{ reservation_rooms : "assigned to"
+    reservations ||--|| folios : "billed by"
+    folios ||--o{ charges : has
+    folios ||--o{ payments : receives
+
+    properties {
+        uuid property_id PK
+        varchar name
+        text address
+        char currency_code
+        timestamptz created_at
+    }
+    roles {
+        smallint role_id PK
+        varchar name
+    }
+    users {
+        uuid user_id PK
+        uuid property_id FK
+        smallint role_id FK
+        varchar full_name
+        varchar email
+        varchar password_hash
+        boolean can_approve_rates
+        timestamptz created_at
+    }
+    room_statuses {
+        smallint status_id PK
+        varchar code
+    }
+    booking_sources {
+        smallint source_id PK
+        varchar code
+        varchar name
+    }
+    room_categories {
+        uuid category_id PK
+        uuid property_id FK
+        varchar name
+    }
+    room_types {
+        uuid room_type_id PK
+        uuid category_id FK
+        varchar name
+        smallint max_guests
+        smallint min_nights
+        text description
+        jsonb facilities
+        jsonb photos
+        text layout_info
+    }
+    rooms {
+        uuid room_id PK
+        uuid room_type_id FK
+        smallint status_id FK
+        varchar room_number
+    }
+    room_stock {
+        uuid stock_id PK
+        uuid room_type_id FK
+        date stock_date
+        smallint total_rooms
+        smallint reserved_rooms
+    }
+    guests {
+        uuid guest_id PK
+        varchar full_name
+        varchar phone
+        varchar email
+        varchar nationality
+        varchar id_passport_no
+        text address
+        timestamptz created_at
+    }
+    reservations {
+        uuid reservation_id PK
+        varchar reservation_ref
+        uuid property_id FK
+        uuid guest_id FK
+        smallint source_id FK
+        date check_in_date
+        date check_out_date
+        time estimated_arrival
+        smallint total_guests
+        varchar status
+        varchar payment_status
+        text special_requests
+        text notes
+        timestamptz created_at
+    }
+    reservation_rooms {
+        uuid reservation_room_id PK
+        uuid reservation_id FK
+        uuid room_type_id FK
+        uuid room_id FK
+        numeric rate_total
+    }
+    folios {
+        uuid folio_id PK
+        uuid reservation_id FK
+        char currency_code
+        timestamptz opened_at
+        timestamptz closed_at
+    }
+    charges {
+        uuid charge_id PK
+        uuid folio_id FK
+        varchar charge_type
+        varchar description
+        numeric quantity
+        numeric unit_price
+        numeric amount
+        timestamptz charged_at
+    }
+    payments {
+        uuid payment_id PK
+        uuid folio_id FK
+        numeric amount
+        char currency_code
+        varchar method
+        varchar status
+        varchar gateway_reference
+        timestamptz paid_at
+    }

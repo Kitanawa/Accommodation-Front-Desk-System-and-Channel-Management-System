@@ -5,19 +5,20 @@ const crypto = require('crypto');
 const S = require('./service');
 const A = require('./auth');
 const P = require('./permissions');
+const Approvals = require('./approvals');
 const { HttpError, bad, forbidden, notFound, conflict, Fields, isUuid } = require('./errors');
 const { hashPassword, verifyPassword, validatePassword, POLICY } = require('./password');
 
-let db;
+let db, s0;
 const app = express();
 app.use((req, res, next) => {                       // request id + CORS (a separate front end may call this API)
   req.id = crypto.randomUUID();
-  res.set({ 'X-Request-Id': req.id, 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'Access-Control-Expose-Headers': 'X-Request-Id' });
+  res.set({ 'X-Request-Id': req.id, 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Booking-Token, X-Signature',
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'Access-Control-Expose-Headers': 'X-Request-Id, X-Total-Count, X-Page, X-Page-Size, X-Total-Pages' });
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '100kb', verify: (req, res, buf) => { if (req.url.startsWith('/api/public/payments/webhook')) req.rawBody = buf; } }));
 app.param('id', (req, res, next, v) => isUuid(v) ? next() : next(bad('The id in the URL is not valid.', [{ field: 'id', message: 'Must be a UUID.' }])));
 
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
@@ -41,8 +42,15 @@ app.get('/api/me', auth, (req, res) => res.json(A.publicUser(req.user)));
 
 // ---------- front end (apps/fds-web): cookie sign-in and /api/staff, translated onto the endpoints below ----------
 require('./frontend-compat')(app, { getDb: () => db, auth, need });
-require('./catalog')(app, { getDb: () => db, auth, need, wrap, validateRate: b => validateRate(b), checkCurrency: (...a) => checkCurrency(...a) });
+require('./frontdesk')(app, { getDb: () => db, auth, need, wrap });
+require('./guests')(app, { getDb: () => db, auth, need, wrap });
 require('./calendar')(app, { getDb: () => db, auth, need, wrap });
+require('./reservations')(app, { getDb: () => db, auth, need, wrap });
+require('./billing')(app, { getDb: () => db, auth, need, wrap });
+require('./operations')(app, { getDb: () => db, auth, need, wrap });
+require('./public')(app, { getDb: () => db, auth, need, wrap });
+require('./approvals')(app, { getDb: () => db, auth, need, wrap });
+require('./catalog')(app, { getDb: () => db, auth, need, wrap, validateRate: b => validateRate(b), checkCurrency: (...a) => checkCurrency(...a) });
 
 // ---------- reference data ----------
 app.get('/api/sources', auth, wrap(async (req, res) => res.json(await q('select source_id, code, name from booking_sources order by source_id'))));
@@ -61,148 +69,6 @@ app.get('/api/dashboard', auth, need('reports.operational'), wrap(async (req, re
   res.json({ today: t, arrivals, departures, ...c, pending_rates: P.can(req.user, 'rates.view_all') ? c.pending_rates : null });
 }));
 
-// ---------- availability and reservations ----------
-app.get('/api/availability', auth, need('reservations.manage'), wrap(async (req, res) => res.json(await S.availability(q, prop(req), req.query))));
-
-app.post('/api/reservations', auth, need('reservations.manage'), wrap(async (req, res) => {
-  const r = await db.tx(t => S.createReservation(t, prop(req), req.body || {}, req.user.user_id));
-  res.status(201).json(r);
-}));
-app.get('/api/reservations', auth, need('reservations.manage'), wrap(async (req, res) => {
-  const params = [prop(req)], where = ['r.property_id=$1'];
-  if (req.query.status) {
-    if (!['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED'].includes(req.query.status)) throw bad('Invalid status filter.', [{ field: 'status', message: 'Must be CONFIRMED, CHECKED_IN, CHECKED_OUT or CANCELLED.' }]);
-    params.push(req.query.status); where.push(`r.status=$${params.length}`);
-  }
-  if (req.query.q) { params.push('%' + req.query.q + '%'); where.push(`(r.reservation_ref ilike $${params.length} or g.full_name ilike $${params.length})`); }
-  res.json(await q(`select r.reservation_id, r.reservation_ref, g.full_name, tp.name room_type, rm.room_number, r.check_in_date::text check_in, r.check_out_date::text check_out,
-    r.total_guests, r.status, r.payment_status, s.name source,
-    (select coalesce(sum(c.amount),0)::float8 from charges c join folios f using(folio_id) where f.reservation_id=r.reservation_id) total
-    from reservations r join guests g using(guest_id) join booking_sources s using(source_id) join reservation_rooms rr using(reservation_id)
-    join room_types tp on tp.room_type_id=rr.room_type_id left join rooms rm on rm.room_id=rr.room_id
-    where ${where.join(' and ')} order by r.check_in_date desc, r.reservation_ref limit 200`, params));
-}));
-app.get('/api/reservations/:id', auth, need('reservations.manage'), wrap(async (req, res) => res.json(await S.getReservation(q, prop(req), req.params.id))));
-
-app.patch('/api/reservations/:id', auth, need('reservations.manage'), wrap(async (req, res) => {
-  const r = await S.getReservation(q, prop(req), req.params.id);
-  if (['CANCELLED', 'CHECKED_OUT'].includes(r.status)) throw conflict(`A ${r.status.toLowerCase().replace('_', ' ')} reservation cannot be edited.`, 'INVALID_STATE');
-  const b = req.body || {};
-  await db.tx(async t => {
-    await t.q('update guests set full_name=coalesce($2,full_name), phone=coalesce($3,phone), email=coalesce($4,email) where guest_id=$1', [r.guest_id, b.full_name || null, b.phone || null, b.email || null]);
-    await t.q('update reservations set special_requests=coalesce($2,special_requests), notes=coalesce($3,notes), estimated_arrival=coalesce($4::time,estimated_arrival) where reservation_id=$1', [r.reservation_id, b.special_requests ?? null, b.notes ?? null, b.estimated_arrival || null]);
-    await S.audit(t.q, req.user.user_id, 'RESERVATION_UPDATED', 'reservations', r.reservation_id, null, b);
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
-app.post('/api/reservations/:id/cancel', auth, need('reservations.manage'), wrap(async (req, res) => {
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.status !== 'CONFIRMED') throw conflict('Only a confirmed reservation can be cancelled.', 'INVALID_STATE');
-    await t.q("update reservations set status='CANCELLED' where reservation_id=$1", [r.reservation_id]);
-    await t.q('update room_stock set reserved_rooms=reserved_rooms-1 where room_type_id=$1 and stock_date>=$2::date and stock_date<$3::date and reserved_rooms>0', [r.room_type_id, r.check_in, r.check_out]);
-    await S.audit(t.q, req.user.user_id, 'RESERVATION_CANCELLED', 'reservations', r.reservation_id, { status: 'CONFIRMED' }, { status: 'CANCELLED' });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
-app.get('/api/reservations/:id/free-rooms', auth, need('stay.operate'), wrap(async (req, res) => {
-  const r = await S.getReservation(q, prop(req), req.params.id);
-  res.json(await S.freeRooms(q, r.room_type_id, r.check_in, r.check_out, r.reservation_id, false));
-}));
-app.post('/api/reservations/:id/assign-room', auth, need('stay.operate'), wrap(async (req, res) => {
-  if (!isUuid((req.body || {}).room_id)) throw bad('Choose a room.', [{ field: 'room_id', message: 'Must be a room id (UUID).' }]);
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (!['CONFIRMED', 'CHECKED_IN'].includes(r.status)) throw conflict('Rooms can only be assigned to active reservations.', 'INVALID_STATE');
-    const ok = (await S.freeRooms(t.q, r.room_type_id, r.check_in, r.check_out, r.reservation_id, false)).find(x => x.room_id === req.body.room_id);
-    if (!ok) throw conflict('That room is not free for these dates, is blocked, or is a different room type.', 'ROOM_NOT_AVAILABLE');
-    await t.q('update reservation_rooms set room_id=$2 where reservation_room_id=$1', [r.reservation_room_id, ok.room_id]);
-    await S.audit(t.q, req.user.user_id, 'ROOM_ASSIGNED', 'reservations', r.reservation_id, { room: r.room_number || null }, { room: ok.room_number });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
-app.post('/api/reservations/:id/check-in', auth, need('stay.operate'), wrap(async (req, res) => {
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.status !== 'CONFIRMED') throw conflict('Only a confirmed reservation can be checked in.', 'INVALID_STATE');
-    let roomId = r.room_id, roomNo = r.room_number;
-    const [rm] = roomId ? await t.q('select status_id from rooms where room_id=$1', [roomId]) : [];
-    if (roomId && rm.status_id !== 1) throw conflict(`Room ${roomNo} is not available right now (cleaning, occupied or blocked). Assign another room.`, 'ROOM_NOT_AVAILABLE');
-    if (!roomId) {
-      const [free] = await S.freeRooms(t.q, r.room_type_id, r.check_in, r.check_out, r.reservation_id, true);
-      if (!free) throw conflict('No available room of this type is ready for check-in.', 'ROOM_NOT_AVAILABLE');
-      roomId = free.room_id; roomNo = free.room_number;
-      await t.q('update reservation_rooms set room_id=$2 where reservation_room_id=$1', [r.reservation_room_id, roomId]);
-    }
-    await t.q('update rooms set status_id=2 where room_id=$1', [roomId]);
-    await t.q("update reservations set status='CHECKED_IN' where reservation_id=$1", [r.reservation_id]);
-    await S.audit(t.q, req.user.user_id, 'CHECKED_IN', 'reservations', r.reservation_id, { status: 'CONFIRMED' }, { status: 'CHECKED_IN', room: roomNo });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-app.post('/api/reservations/:id/check-out', auth, need('stay.operate'), wrap(async (req, res) => {
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.status !== 'CHECKED_IN') throw conflict('Only a checked-in reservation can be checked out.', 'INVALID_STATE');
-    if (r.balance > 0.001) throw conflict(`Outstanding balance of ${r.balance.toFixed(2)}. Record payment before check-out.`, 'BALANCE_OUTSTANDING');
-    await t.q('update rooms set status_id=3 where room_id=$1', [r.room_id]);
-    await t.q("update reservations set status='CHECKED_OUT' where reservation_id=$1", [r.reservation_id]);
-    await t.q('update folios set closed_at=now() where folio_id=$1', [r.folio_id]);
-    await S.audit(t.q, req.user.user_id, 'CHECKED_OUT', 'reservations', r.reservation_id, { status: 'CHECKED_IN' }, { status: 'CHECKED_OUT' });
-  });
-  res.json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
-// ---------- folio ----------
-app.post('/api/reservations/:id/charges', auth, need('folio.manage'), wrap(async (req, res) => {
-  const b = req.body || {}, f = new Fields(), fromAddOn = b.add_on_id !== undefined && b.add_on_id !== null;
-  if (fromAddOn && !isUuid(b.add_on_id)) f.add('add_on_id', 'Must be a UUID.');
-  if (!fromAddOn || b.description !== undefined) {
-    if (typeof b.description !== 'string' || !b.description.trim()) f.add('description', 'Description is required.');
-    else if (b.description.length > 200) f.add('description', 'At most 200 characters.');
-  }
-  const qty = b.quantity === undefined ? 1 : Number(b.quantity);
-  if (b.quantity !== undefined && !(qty > 0)) f.add('quantity', 'Quantity must be greater than 0.');
-  if (!fromAddOn && (b.unit_price === undefined || b.unit_price === '' || !(Number(b.unit_price) >= 0))) f.add('unit_price', 'Unit price must be a number of 0 or more.');
-  if (fromAddOn && b.unit_price !== undefined) f.add('unit_price', 'The price comes from the approved add-on. Leave it out.');
-  f.check();
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.closed_at || r.status === 'CANCELLED') throw conflict('This folio is closed.', 'FOLIO_CLOSED');
-    let desc = (b.description || '').trim(), unit = b.unit_price, q2 = qty, type = 'ADDITIONAL', addOnId = null;
-    if (fromAddOn) {                                                         // S069: record the approved price as it is today; later price changes never touch this charge
-      const [a] = await t.q('select add_on_id, name, pricing_unit, unit_price::float8 unit_price, approval_status, is_active from add_ons where add_on_id=$1 and property_id=$2', [b.add_on_id, prop(req)]);
-      if (!a) throw notFound('Add-on not found.');
-      if (a.approval_status !== 'APPROVED' || !a.is_active) throw conflict('This add-on is not available.', 'INVALID_STATE');
-      desc = desc || a.name; unit = a.unit_price; type = 'ADD_ON'; addOnId = a.add_on_id;
-      if (b.quantity === undefined) q2 = a.pricing_unit === 'PER_NIGHT' ? S.nightsList(r.check_in, r.check_out).length : a.pricing_unit === 'PER_GUEST' ? r.total_guests : 1;
-    }
-    const amount = money(q2 * Number(unit));
-    const [c] = await t.q(`insert into charges(folio_id,charge_type,description,quantity,unit_price,amount,add_on_id) values($1,$2,$3,$4,$5,$6,$7) returning charge_id`, [r.folio_id, type, desc, q2, unit, amount, addOnId]);
-    await S.recalcPayment(t.q, r.reservation_id);
-    await S.audit(t.q, req.user.user_id, 'CHARGE_POSTED', 'charges', c.charge_id, null, { description: desc, amount, add_on_id: addOnId });
-  });
-  res.status(201).json(await S.getReservation(q, prop(req), req.params.id));
-}));
-app.post('/api/reservations/:id/payments', auth, need('folio.manage'), wrap(async (req, res) => {
-  const b = req.body || {}, f = new Fields(), amount = money(b.amount);
-  if (!(amount > 0)) f.add('amount', 'Payment amount must be greater than 0.');
-  if (!['CASH', 'CARD', 'ONLINE', 'BANK_TRANSFER'].includes(b.method)) f.add('method', 'Must be CASH, CARD, ONLINE or BANK_TRANSFER.');
-  f.check();
-  await db.tx(async t => {
-    const r = await S.getReservation(t.q, prop(req), req.params.id);
-    if (r.status === 'CANCELLED') throw conflict('Reservation is cancelled.', 'INVALID_STATE');
-    if (amount > r.balance + 0.001) throw bad(`Payment is more than the balance of ${r.balance.toFixed(2)}.`, [{ field: 'amount', message: `At most ${r.balance.toFixed(2)}.` }]);
-    const [p] = await t.q('insert into payments(folio_id,amount,currency_code,method) values($1,$2,(select currency_code from folios where folio_id=$1),$3) returning payment_id', [r.folio_id, amount, b.method]);
-    const st = await S.recalcPayment(t.q, r.reservation_id);
-    await S.audit(t.q, req.user.user_id, 'PAYMENT_RECORDED', 'payments', p.payment_id, null, { amount, method: b.method, payment_status: st });
-  });
-  res.status(201).json(await S.getReservation(q, prop(req), req.params.id));
-}));
-
 // ---------- rooms ----------
 const roomScope = `from rooms r join room_types t using(room_type_id) join room_categories c on c.category_id=t.category_id`;
 app.get('/api/rooms', auth, need('catalog.view'), wrap(async (req, res) => res.json(await q(
@@ -213,11 +79,14 @@ app.patch('/api/rooms/:id/status', auth, need('stay.operate'), wrap(async (req, 
   const b = req.body || {};
   const [st] = await q('select status_id from room_statuses where code=$1', [b.status]);
   if (!st || st.status_id === 2) throw bad('Choose Available, Cleaning or Maintenance/Blocked. Occupied is set by check-in.', [{ field: 'status', message: 'Must be AVAILABLE, CLEANING or MAINTENANCE_BLOCKED.' }]);
-  const [cur] = await q(`select r.status_id ${roomScope} where r.room_id=$1 and c.property_id=$2`, [req.params.id, prop(req)]);
-  if (!cur) throw notFound('Room not found.');
-  if (cur.status_id === 2) throw conflict('An occupied room changes status at check-out.', 'INVALID_STATE');
-  await q('update rooms set status_id=$2 where room_id=$1', [req.params.id, st.status_id]);
-  await S.audit(q, req.user.user_id, 'ROOM_STATUS_CHANGED', 'rooms', req.params.id, { status_id: cur.status_id }, { status: b.status });
+  await db.tx(async t => {
+    const [cur] = await t.q(`select r.room_id, r.status_id ${roomScope} where r.room_id=$1 and c.property_id=$2`, [req.params.id, prop(req)]);
+    if (!cur) throw notFound('Room not found.');
+    if (cur.status_id === 2) throw conflict('An occupied room changes status at check-out.', 'INVALID_STATE');
+    if (cur.status_id === 4 && b.status !== 'MAINTENANCE_BLOCKED' && (await t.q("select 1 x from maintenance_reports where room_id=$1 and status='OPEN' and blocks_room", [cur.room_id])).length)
+      throw conflict('This room is blocked by an open maintenance report. Resolve the report to release it.', 'INVALID_STATE');
+    await S.moveRoom(t.q, req.params.id, b.status, req.user.user_id, 'manual');
+  });
   res.json({ ok: true });
 }));
 
@@ -318,28 +187,7 @@ app.post('/api/rates/:id/revise', auth, need('rates.manage'), wrap(async (req, r
 }));
 
 app.post('/api/rates/:id/approve', auth, need('rates.approve'), wrap(async (req, res) => {
-  await db.tx(async t => {
-    const r = await rateRow(t.q, req.params.id, prop(req));
-    if (!r) throw notFound('Rate not found.');
-    if (r.approval_status === 'APPROVED') throw conflict('Already approved.', 'INVALID_STATE');
-    const [ty] = await t.q('select approval_status from room_types where room_type_id=$1', [r.room_type_id]);
-    if (ty.approval_status !== 'APPROVED') throw conflict('This room type is waiting for approval. Approve the room type; its rates are approved with it.', 'INVALID_STATE');
-    let effective = null;
-    if (r.supersedes_id) {                                                   // S068: replace the current rate from the effective date
-      const [old] = await t.q('select rate_rule_id, approval_status, valid_until from rate_rules where rate_rule_id=$1 for update', [r.supersedes_id]);
-      if (!old || old.approval_status !== 'APPROVED' || old.valid_until) throw conflict('The rate this change replaces is no longer in force. Withdraw this change.', 'INVALID_STATE');
-      effective = r.effective_from || S.today();
-      // the rate it replaces, and any older rate that was still waiting for that one to take over, all end on the effective date
-      await t.q(`with recursive chain as (select rate_rule_id, supersedes_id from rate_rules where rate_rule_id=$1
-          union all select r.rate_rule_id, r.supersedes_id from rate_rules r join chain c on r.rate_rule_id=c.supersedes_id)
-        update rate_rules set valid_until=$2::date where rate_rule_id in (select rate_rule_id from chain) and (valid_until is null or valid_until>$2::date)`, [old.rate_rule_id, effective]);
-    } else if (r.rule_type === 'BASE') {
-      const [ex] = await t.q("select 1 x from rate_rules where room_type_id=$1 and rule_type='BASE' and approval_status='APPROVED' and valid_until is null", [r.room_type_id]);
-      if (ex) throw conflict('This room type already has an approved Base Rate. Use "change rate" on it instead.', 'BASE_RATE_EXISTS');
-    }
-    await t.q("update rate_rules set approval_status='APPROVED', effective_from=coalesce($2::date, effective_from) where rate_rule_id=$1", [r.rate_rule_id, effective]);
-    await S.audit(t.q, req.user.user_id, 'RATE_APPROVED', 'rate_rules', r.rate_rule_id, { approval_status: 'PENDING' }, { approval_status: 'APPROVED', effective_from: effective });
-  });
+  await db.tx(t => Approvals.logic.approve(t, prop(req), req.user.user_id, 'RATE', req.params.id));
   res.json({ ok: true });
 }));
 
@@ -509,6 +357,8 @@ app.post('/api/users/:id/revoke-sessions', auth, need('users.manage_frontdesk'),
 }));
 
 // ---------- errors: one shape for everything (S055) ----------
+// Demo pages (manager approvals, guest booking). Not served in production.
+if (process.env.NODE_ENV !== 'production') app.use('/demo', express.static(require('path').join(__dirname, 'demo-ui')));
 app.use((req, res, next) => next(notFound('No such endpoint.')));
 app.use((err, req, res, next) => {
   let status = 500, code = 'INTERNAL_ERROR', message = 'Something went wrong on the server.', fields;
@@ -523,7 +373,10 @@ app.use((err, req, res, next) => {
 
 async function start(port = process.env.PORT || 3000) {
   db = await require('./db').ensureSchema();
-  return new Promise(resolve => { const s = app.listen(port, () => resolve(s)); });
+  // S180: holds that ran out of time give their rooms back by themselves, not only when somebody searches. One statement, safe to run from many servers.
+  const every = Math.max(Number(process.env.HOLD_SWEEP_SECONDS) || 30, 1) * 1000;
+  const timer = setInterval(() => S.sweepHolds(db.q).catch(e => console.error('hold sweep failed:', e.message)), every); timer.unref();
+  return new Promise(resolve => { const s = app.listen(port, () => resolve(s)); s0 = s; });
 }
 module.exports = { start, app };
 if (require.main === module) start().then(s => console.log(`FDS backend running at http://localhost:${s.address().port}  [${db.mode}]`));

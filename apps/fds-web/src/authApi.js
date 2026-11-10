@@ -8,6 +8,6 @@ export async function api(path,options={}){
  let response
  try{response=await fetch(path,{...options,signal:options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000),credentials:'same-origin',headers:{'Content-Type':'application/json','X-App-Request':'1',...options.headers}})}catch(error){if(error.name==='AbortError')throw error;if(error.name==='TimeoutError')throw new Error('The request timed out. Please try again.');throw new Error('Unable to reach the server. Check the connection and try again.')}
  const body=await response.json().catch(()=>({error:'Authentication API is unavailable. Start the backend separately, or enable VITE_DEMO_AUTH=true in apps/fds-web/.env.local and restart the frontend.'}))
- if(!response.ok){const error=new Error(body.error||'Request failed.');error.status=response.status;throw error}
+ if(!response.ok){const error=new Error((typeof body.error==='string'?body.error:(body.error?.fields?.[0]?.message||body.error?.message))||'Request failed.');error.status=response.status;throw error}
  return body
 }
