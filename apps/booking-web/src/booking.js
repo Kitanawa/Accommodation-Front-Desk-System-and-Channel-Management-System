@@ -4,6 +4,13 @@ export const rooms=[
  {id:'deluxe-king',name:'Deluxe King',eyebrow:'YOUR OWN SLOW MORNING',category:'Classic',rate:250,capacity:2,stock:4,size:32,bed:'1 king bed',image:image('photo-1611892440504-42a792e24d32'),description:'Room to stretch out, sleep in and make yourself at home. Warm textures meet thoughtful details in a generous king room.',features:['Breakfast included','Rain shower','Lounge chair','Complimentary Wi-Fi']},
  {id:'president-suite',name:'President Suite',eyebrow:'MAKE A LITTLE MORE ROOM',category:'Suite',rate:380,capacity:4,stock:2,size:48,bed:'1 king + sofa bed',image:image('photo-1566665797739-1674de7a421a'),description:'A welcoming space for longer stays and shared moments, with a separate sitting area and room for everyone to feel at ease.',features:['Breakfast included','Separate living area','Bathtub','Complimentary Wi-Fi']}
 ]
+// Same charges as the FDS receipt (apps/fds-web/src/bookingRules.js receiptCharges): SST 6% and service charge 10% on the room subtotal, rounded per cent.
+export const SST_RATE=6,SERVICE_RATE=10
+export function stayCharges(rate,nights){const subtotal=Math.round(rate*100)*nights,sst=Math.round(subtotal*SST_RATE/100),service=Math.round(subtotal*SERVICE_RATE/100);return {subtotal:subtotal/100,sst:sst/100,service:service/100,total:(subtotal+sst+service)/100}}
+// Rooms left at or below this number are shown as "Only N left".
+export const LOW_STOCK=3
+// Property contact details. Set live to true only with the property's real details: until then they show as samples and are not clickable.
+export const contact={live:false,address:'Property address to be confirmed',phone:'+60 12-000 0000',whatsapp:'60120000000',email:'stay@demo-hotel.example',hours:'Front desk open 24 hours'}
 export const dayKey=(date=new Date())=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
 export const addDays=(key,count)=>{const date=new Date(key+'T12:00:00');date.setDate(date.getDate()+count);return dayKey(date)}
 export const money=value=>new Intl.NumberFormat('en-MY',{style:'currency',currency:'MYR',maximumFractionDigits:2}).format(value)
@@ -24,5 +31,5 @@ export function createBooking(room,stay,guest,bookings,today=dayKey()){
  const nights=validateStay(stay,today)
  if(stay.guests>room.capacity||availableRooms(room,stay,bookings)<1)throw new Error('This room is no longer available for your stay. Please choose another room or date.')
  if(!guest.name?.trim()||!/^\S+@\S+\.\S+$/.test(guest.email||'')||!guest.phone?.trim())throw new Error('Enter your name, a valid email and contact number.')
- return {id:'MH-'+crypto.randomUUID().slice(0,8).toUpperCase(),room:room.id,roomName:room.name,...stay,guests:Number(stay.guests),guest:{...guest,name:guest.name.trim()},nights,total:Math.round(room.rate*100)*nights/100,rate:room.rate,status:'Upcoming',paymentStatus:'Pay at property',source:'Direct website demo',createdAt:new Date().toISOString()}
+ return {id:'MH-'+crypto.randomUUID().slice(0,8).toUpperCase(),room:room.id,roomName:room.name,...stay,guests:Number(stay.guests),guest:{...guest,name:guest.name.trim()},nights,...stayCharges(room.rate,nights),rate:room.rate,status:'Upcoming',paymentStatus:'Pay at property',source:'Direct website demo',createdAt:new Date().toISOString()}
 }
