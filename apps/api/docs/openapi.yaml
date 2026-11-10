@@ -23,6 +23,7 @@ tags:
   - name: Reports
   - name: Approvals
   - name: Booking engine
+  - name: Guest accounts
   - name: Rooms
   - name: Rates
   - name: Add-ons
@@ -4546,7 +4547,7 @@ paths:
     post:
       tags:
         - Booking engine
-      summary: "S168, S169: start a booking. The server validates the guest form, works out the price and takes a hold (the hold time of the property). The response shows access_token once: keep it. Any price in the request is refused. At most 3 unpaid bookings per e-mail address; 20 requests a minute per address."
+      summary: "S168, S169: start a booking. The server validates the guest form, works out the price and takes a hold (the hold time of the property). The response shows access_token once: keep it. Any price in the request is refused. At most 3 unpaid bookings per e-mail address; 20 requests a minute per address. Optional header Authorization: Bearer <guest token> links the booking to that guest account (an ended or unknown token is refused with 401)."
       description: "Who: Public. Status: implemented."
       operationId: POST_api_public_bookings
       x-status: implemented
@@ -4868,6 +4869,231 @@ paths:
                 - event_id
                 - type
                 - reference
+  /api/public/account/register:
+    post:
+      tags:
+        - Guest accounts
+      summary: Create a guest account and sign in. Same password rules as staff. One account per e-mail address per property. The token is shown once. E-mail is not verified yet (no mail service). 20 requests a minute per address.
+      description: "Who: Public. Status: implemented."
+      operationId: POST_api_public_account_register
+      x-status: implemented
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestSession"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: CONFLICT"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: "Error code: RATE_LIMITED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                email:
+                  type: string
+                phone:
+                  type: string
+                password:
+                  type: string
+                property_id:
+                  type: string
+                  format: uuid
+              required:
+                - full_name
+                - email
+                - password
+  /api/public/account/login:
+    post:
+      tags:
+        - Guest accounts
+      summary: Sign in to a guest account. The session lasts 8 hours. 5 wrong passwords in a row lock the account for 15 minutes.
+      description: "Who: Public. Status: implemented."
+      operationId: POST_api_public_account_login
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestSession"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: INVALID_CREDENTIALS"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Error code: ACCOUNT_DISABLED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: "Error code: ACCOUNT_LOCKED or RATE_LIMITED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                property_id:
+                  type: string
+                  format: uuid
+              required:
+                - email
+                - password
+  /api/public/account/logout:
+    post:
+      tags:
+        - Guest accounts
+      summary: End this guest session. Always answers ok.
+      description: "Who: Public. Status: implemented."
+      operationId: POST_api_public_account_logout
+      x-status: implemented
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
+  /api/public/account:
+    get:
+      tags:
+        - Guest accounts
+      summary: The signed-in guest account.
+      description: "Who: Public. Status: implemented."
+      operationId: GET_api_public_account
+      x-status: implemented
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer <token> from register or login (a guest token, not a staff token).
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuestAccount"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
+  /api/public/account/bookings:
+    get:
+      tags:
+        - Guest accounts
+      summary: Bookings started while signed in to this account (never matched by e-mail), newest stay first. Abandoned, expired and failed attempts are left out.
+      description: "Who: Public. Status: implemented."
+      operationId: GET_api_public_account_bookings
+      x-status: implemented
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer <token> from register or login (a guest token, not a staff token).
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GuestBooking"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security: []
   /api/email-outbox:
     get:
       tags:
@@ -8280,6 +8506,68 @@ components:
           type: object
           nullable: true
         access_token:
+          type: string
+          nullable: true
+    GuestAccount:
+      type: object
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    GuestSession:
+      type: object
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        account:
+          $ref: "#/components/schemas/GuestAccount"
+    GuestBooking:
+      type: object
+      properties:
+        attempt_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - HOLDING
+            - PAYMENT_PENDING
+            - CONFIRMED
+            - PAID_UNFULFILLED
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        total_guests:
+          type: integer
+        total:
+          type: number
+        currency_code:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        room_type:
+          type: string
+        reservation_ref:
+          type: string
+          nullable: true
+        reservation_status:
           type: string
           nullable: true
     PaymentSession:

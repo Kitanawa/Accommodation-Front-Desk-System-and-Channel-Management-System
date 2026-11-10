@@ -4,7 +4,7 @@ Version 0.8, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end
 
 This file is generated from `docs/contract.js` (the same file produces `openapi.yaml`), and a test checks that every endpoint marked *implemented* really exists in the server and that none is missing here.
 
-**Status:** all 121 endpoints run today.
+**Status:** all 126 endpoints run today.
 
 ## 1. Conventions
 
@@ -776,7 +776,7 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | Endpoint | Who | Status | What it does |
 |---|---|---|---|
 | `GET /api/public/availability` | Public | Implemented | S166, S167: approved room types with approved prices (tax included) for the stay. No guest data and no stock figures: rooms_left is shown up to 5. 120 requests a minute per address. |
-| `POST /api/public/bookings` | Public | Implemented | S168, S169: start a booking. The server validates the guest form, works out the price and takes a hold (the hold time of the property). The response shows access_token once: keep it. Any price in the request is refused. At most 3 unpaid bookings per e-mail address; 20 requests a minute per address. |
+| `POST /api/public/bookings` | Public | Implemented | S168, S169: start a booking. The server validates the guest form, works out the price and takes a hold (the hold time of the property). The response shows access_token once: keep it. Any price in the request is refused. At most 3 unpaid bookings per e-mail address; 20 requests a minute per address. Optional header Authorization: Bearer <guest token> links the booking to that guest account (an ended or unknown token is refused with 401). |
 | `GET /api/public/bookings/{id}` | Public | Implemented | S168: the state of one booking (HOLDING, PAYMENT_PENDING, CONFIRMED, FAILED, EXPIRED, ABANDONED, PAID_UNFULFILLED). Needs the X-Booking-Token header (missing 401, wrong 404). |
 | `POST /api/public/bookings/{id}/payment-session` | Public | Implemented | S170: open the payment: amount (the deposit share of the total), currency and reference are chosen by the server; whatever the client sends is ignored. Asking again returns the same open session. |
 | `POST /api/public/bookings/{id}/cancel` | Public | Implemented | S173, S175: the guest leaves an unpaid booking (hold released, session closed), or cancels a confirmed one under the cancellation rule of the property (fee, refund request). |
@@ -844,6 +844,46 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | Query parameters | Type | Required | Notes |
 |---|---|---|---|
 | `status` | one of QUEUED, SENT, FAILED | No |  |
+
+### Guest accounts
+
+| Endpoint | Who | Status | What it does |
+|---|---|---|---|
+| `POST /api/public/account/register` | Public | Implemented | Create a guest account and sign in. Same password rules as staff. One account per e-mail address per property. The token is shown once. E-mail is not verified yet (no mail service). 20 requests a minute per address. |
+| `POST /api/public/account/login` | Public | Implemented | Sign in to a guest account. The session lasts 8 hours. 5 wrong passwords in a row lock the account for 15 minutes. |
+| `POST /api/public/account/logout` | Public | Implemented | End this guest session. Always answers ok. |
+| `GET /api/public/account` | Public | Implemented | The signed-in guest account. |
+| `GET /api/public/account/bookings` | Public | Implemented | Bookings started while signed in to this account (never matched by e-mail), newest stay first. Abandoned, expired and failed attempts are left out. |
+
+**`POST /api/public/account/register`** returns 201 `GuestSession`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `full_name` | string | Yes | 2 to 120 characters. |
+| `email` | string | Yes |  |
+| `phone` | string | No | Digits, spaces, + ( ) and -, 6 to 30 characters. |
+| `password` | string | Yes | Must meet the password rules. |
+| `property_id` | UUID | No | Needed when the system has more than one property. |
+
+**`POST /api/public/account/login`** returns 200 `GuestSession`. Errors: `VALIDATION_ERROR`, `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED`, `ACCOUNT_LOCKED`, `RATE_LIMITED`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `email` | string | Yes |  |
+| `password` | string | Yes |  |
+| `property_id` | UUID | No |  |
+
+**`GET /api/public/account`** returns 200 `GuestAccount`. Errors: only the standard ones.
+
+| Headers | Type | Required | Notes |
+|---|---|---|---|
+| `Authorization` | string | Yes | Bearer <token> from register or login (a guest token, not a staff token). |
+
+**`GET /api/public/account/bookings`** returns 200 `GuestBooking[]`. Errors: only the standard ones.
+
+| Headers | Type | Required | Notes |
+|---|---|---|---|
+| `Authorization` | string | Yes | Bearer <token> from register or login (a guest token, not a staff token). |
 
 ### Rooms
 

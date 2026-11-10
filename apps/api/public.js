@@ -4,7 +4,7 @@
 const crypto = require('crypto');
 const S = require('./service');
 const Cancellation = require('./cancellation');
-const { HttpError, bad, notFound, conflict, Fields, isUuid } = require('./errors');
+const { HttpError, bad, notFound, conflict, Fields, isUuid, unauthenticated } = require('./errors');
 
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@.]+(\.[^\s@.]+)+$/;
 const PHONE_RE = /^\+?[0-9][0-9 ()\-]{5,28}$/;
@@ -38,6 +38,7 @@ module.exports = function mount(app, { getDb, wrap }) {
     return all[0];
   }
   const money = S.money;
+  const { accountFromRequest } = require('./guest-accounts')(app, { db, q, wrap, limit, propertyOf });
   async function quote(qq, propertyId, rt, from, to) {
     const price = S.priceStay(await S.loadRules(qq, rt.room_type_id), from, to);
     if (price.total === null) throw conflict('No approved rate for every night of this stay.', 'NO_APPROVED_RATE');
@@ -93,6 +94,8 @@ module.exports = function mount(app, { getDb, wrap }) {
     for (const x of S.checkDates(b.check_in, b.check_out).list) f.add(x.field, x.message);
     f.check();
     const p = await propertyOf(b.property_id);
+    const account = await accountFromRequest(q, req, false);   // signed in: the booking also shows in that account
+    if (account && account.property_id !== p.property_id) throw unauthenticated('Please sign in again.');
     await S.sweepHolds(q);
     const [open] = await q("select count(*)::int n from booking_attempts where guest_email=$1 and status in ('HOLDING','PAYMENT_PENDING') and expires_at>now()", [email]);
     if (open.n >= 3) throw new HttpError(429, 'RATE_LIMITED', 'This e-mail address already has 3 unpaid bookings in progress. Finish or cancel one first.');
@@ -109,9 +112,9 @@ module.exports = function mount(app, { getDb, wrap }) {
       const [h] = await t.q(`insert into reservation_holds(room_type_id,check_in_date,check_out_date,total_guests,expires_at) values($1,$2,$3,$4,now()+make_interval(mins => $5)) returning hold_id, expires_at`,
         [rt.room_type_id, b.check_in, b.check_out, guests, qt.cfg.hold_minutes]);
       const due = Math.max(money(qt.total * qt.cfg.online_deposit_pct / 100), 0.01), token = crypto.randomBytes(24).toString('hex');
-      const [a] = await t.q(`insert into booking_attempts(property_id,hold_id,room_type_id,check_in_date,check_out_date,total_guests,guest_name,guest_email,guest_phone,special_requests,currency_code,subtotal,tax_total,total,amount_due,token_hash,expires_at)
-        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning attempt_id`,
-        [p.property_id, h.hold_id, rt.room_type_id, b.check_in, b.check_out, guests, name, email, phone, wants && wants.trim(), p.currency_code, qt.subtotal, qt.tax_total, qt.total, due, sha(token), h.expires_at]);
+      const [a] = await t.q(`insert into booking_attempts(property_id,hold_id,room_type_id,check_in_date,check_out_date,total_guests,guest_name,guest_email,guest_phone,special_requests,currency_code,subtotal,tax_total,total,amount_due,token_hash,expires_at,account_id)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning attempt_id`,
+        [p.property_id, h.hold_id, rt.room_type_id, b.check_in, b.check_out, guests, name, email, phone, wants && wants.trim(), p.currency_code, qt.subtotal, qt.tax_total, qt.total, due, sha(token), h.expires_at, account ? account.account_id : null]);
       await S.audit(t.q, null, 'ONLINE_BOOKING_STARTED', 'booking_attempts', a.attempt_id, null, { room_type: rt.name, check_in: b.check_in, check_out: b.check_out, total: qt.total, hold_id: h.hold_id });
       return { id: a.attempt_id, token, nights: qt.nights, qt };
     });
