@@ -63,7 +63,9 @@ const S = require('../service');
   ok(st.status === 200 && st.body.tax_rate_pct === 6 && st.body.tax_name === 'SST' && st.body.check_in_time === '15:00' && st.body.check_out_time === '12:00', 'S105: a Manager changes the tax and the check-in time');
   ok(await auditHas('SETTINGS_CHANGED'), 'S105: policy changes are in the audit trail');
   ok((await get(A)).body.tax_rate_pct === 0, 'S099: a reservation made before keeps its recorded tax rate (0)');
-  const B = (await book(deluxe, D(40), D(42))).body.reservation_id, bf = (await get(B)).body;   // 2 x 180 = 360
+  // the seed prices Deluxe King at 240 from 2026-12-20 to 2027-01-03: take the first two nights after day 40 that stay out of that season (the test then does not depend on today's date)
+  let n40 = 40; while (D(n40) <= '2027-01-03' && D(n40 + 2) > '2026-12-20') n40++;
+  const B = (await book(deluxe, D(n40), D(n40 + 2))).body.reservation_id, bf = (await get(B)).body;   // 2 x 180 = 360
   ok(bf.subtotal === 360 && bf.tax_rate_pct === 6 && bf.tax_total === 21.6 && bf.total_charges === 381.6 && bf.balance === 381.6, 'S099: a new reservation records 6% tax: 360 + 21.60 = 381.60');
   const dc = id => api('POST', `/api/reservations/${id}/discounts`, { kind: 'PERCENT', value: 10, reason: 'Loyalty guest' }, MG);
   ok((await api('POST', `/api/reservations/${B}/discounts`, { kind: 'PERCENT', value: 10, reason: 'Loyalty guest' }, FD)).status === 403, 'S099: Front Desk cannot give discounts');
