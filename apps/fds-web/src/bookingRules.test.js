@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { occupiesInventory, canAssign } from './bookingRules.js'
+import { occupiesInventory, canAssign, bookingRef } from './bookingRules.js'
 const units=[{id:'201',type:'def'},{id:'202',type:'def'},{id:'301',type:'twin'}]
 const booking={id:'a',room:'def',quantity:1,start:'2026-10-15',end:'2026-10-18'}
 test('cancelled and checked-out reservations release inventory',()=>{
@@ -88,4 +88,9 @@ test('SST and service charges apply independently to all charges, rounded to cen
  assert.equal(folioTotals(booking).sst,1800)
  assert.equal(folioTotals(booking).service,3000)
  assert.equal(booking.total,250)
+})
+
+test('bookingRef shows the server reference, or a short local id', () => {
+  assert.equal(bookingRef({ id: '07bdeab4-1111-4000-8000-000000000000', ref: 'R-GDLGR3' }), 'R-GDLGR3')
+  assert.equal(bookingRef({ id: '07bdeab4-1111-4000-8000-000000000000' }), '07BDEAB4')
 })

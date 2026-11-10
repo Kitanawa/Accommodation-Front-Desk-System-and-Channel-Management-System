@@ -1,4 +1,6 @@
 export const statusOf = b => b.status || 'Upcoming'
+// The number staff and guests both see: the server reference (e.g. R-GDLGR3) when the booking is in the database, otherwise a short form of the local id.
+export const bookingRef = b => b?.ref || String(b?.id || '').slice(0, 8).toUpperCase()
 export const occupiesInventory = b => !['Cancelled','Checked-out','No-show'].includes(statusOf(b))
 export const physicalRooms = rooms => rooms.flatMap((r,index)=>(r.units || Array.from({length:r.stock},(_,i)=>({id:String((index+2)*100+i+1)}))).map(unit=>({...unit,type:r.id,name:r.name})))
 export function roomsForBooking(booking) { return booking.roomNumbers || (booking.roomNumber ? [booking.roomNumber] : []) }

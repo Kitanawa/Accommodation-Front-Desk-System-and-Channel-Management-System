@@ -54,7 +54,7 @@ export default function DashboardStayView({ rooms, bookings, cleaning, today, mo
   const summary = useMemo(() => dates.map(day => dailySummary(rooms, day, bookings, cleaning, today)), [rooms, dates, bookings, cleaning, today])
 
   const q = query.trim().toLowerCase()
-  const matchesQuery = b => !q || `${b.guest?.name || ''} ${b.id} ${b.guest?.phone || ''}`.toLowerCase().includes(q)
+  const matchesQuery = b => !q || `${b.guest?.name || ''} ${b.id} ${b.ref || ''} ${b.guest?.phone || ''}`.toLowerCase().includes(q)
   const focusBookings = groups[filter] ? new Set(groups[filter].map(b => b.id)) : null
   const highlighted = b => (!focusBookings || focusBookings.has(b.id)) && matchesQuery(b)
   function showUnit(unit, bars) {

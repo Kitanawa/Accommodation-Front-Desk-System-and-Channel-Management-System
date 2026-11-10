@@ -1,4 +1,4 @@
-import { statusOf, stayNights, folioTotals } from './bookingRules.js'
+import { statusOf, bookingRef, stayNights, folioTotals } from './bookingRules.js'
 export function guestDirectory(bookings,profiles) {
  const deleted=new Set(profiles.filter(p=>p.deleted).map(p=>p.id))
  const map=new Map(profiles.filter(p=>!p.deleted).map(p=>[p.id,{...p,stays:[]}]))
@@ -16,7 +16,7 @@ export function buildReport(bookings,rooms,from,to){
  for(let date=start;date<=end;date+=day){const key=new Date(date).toISOString().slice(0,10);const staying=eligible.filter(b=>b.start<=key&&b.end>key);const sold=staying.reduce((sum,b)=>sum+b.quantity,0);daily.push({date:key,rooms:sold,available:Math.max(0,stock-sold),occupancy:stock?sold/stock*100:0,roomChargesCents:staying.reduce((sum,b)=>sum+(Math.floor(Math.round(b.total*100)/Math.max(1,stayNights(b.start,b.end)))+(Math.round((date-utc(b.start))/day)<Math.round(b.total*100)%Math.max(1,stayNights(b.start,b.end))?1:0)),0)})}
  const matches=eligible.filter(b=>b.start<=to&&b.end>from)
  const sources=Object.entries(matches.reduce((acc,b)=>{const source=b.guest.source||'Walk-in';acc[source]=(acc[source]||0)+1;return acc},{})).map(([name,count])=>({name,count}))
- const payments=bookings.flatMap(b=>(b.payments||[]).filter(p=>{const date=p.date.slice(0,10);return date>=from&&date<=to}).map(p=>({...p,bookingId:b.id,guest:b.guest.name})))
+ const payments=bookings.flatMap(b=>(b.payments||[]).filter(p=>{const date=p.date.slice(0,10);return date>=from&&date<=to}).map(p=>({...p,bookingId:b.id,bookingRef:bookingRef(b),guest:b.guest.name})))
  const roomNights=daily.reduce((sum,d)=>sum+d.rooms,0),roomChargesCents=daily.reduce((sum,d)=>sum+d.roomChargesCents,0)
  return {daily,matches,sources,payments,roomNights,roomChargesCents,occupancy:stock?roomNights/(stock*daily.length)*100:0,averageRateCents:roomNights?Math.round(roomChargesCents/roomNights):0,paymentCents:payments.reduce((sum,p)=>sum+p.amountCents,0),outstandingCents:matches.reduce((sum,b)=>sum+Math.max(0,folioTotals(b).balance),0)}
 }
