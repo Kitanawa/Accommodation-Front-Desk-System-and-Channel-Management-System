@@ -31,6 +31,7 @@ function checkPhotos(v, f) {
   return out;
 }
 
+const Approvals = require('./approvals');
 module.exports = function mountCatalog(app, { getDb, auth, need, wrap, validateRate, checkCurrency }) {
   const db = () => getDb(), q = (s, p) => db().q(s, p), prop = req => req.user.property_id;
   const canAll = req => P.can(req.user, 'rates.view_all');
@@ -150,18 +151,8 @@ module.exports = function mountCatalog(app, { getDb, auth, need, wrap, validateR
   }));
   // S067: PENDING -> APPROVED. Approving a room type approves its pending rates in the same step.
   app.post('/api/room-types/:id/approve', auth, need('rates.approve'), wrap(async (req, res) => {
-    const out = await db().tx(async t => {
-      const cur = await typeRow(t.q, req.params.id, prop(req));
-      if (!cur) throw notFound('Room type not found.');
-      if (cur.approval_status === 'APPROVED') throw conflict('Already approved.', 'INVALID_STATE');
-      const [base] = await t.q("select 1 x from rate_rules where room_type_id=$1 and rule_type='BASE' and approval_status='PENDING' and supersedes_id is null", [cur.room_type_id]);
-      if (!base) throw conflict('Add a Base Rate before approving this room type.', 'INVALID_STATE');
-      const rates = await t.q("update rate_rules set approval_status='APPROVED' where room_type_id=$1 and approval_status='PENDING' and supersedes_id is null returning rate_rule_id", [cur.room_type_id]);
-      await t.q("update room_types set approval_status='APPROVED' where room_type_id=$1", [cur.room_type_id]);
-      await audit(t.q, req, 'ROOM_TYPE_APPROVED', 'room_types', cur.room_type_id, { approval_status: 'PENDING' }, { approval_status: 'APPROVED', rates_approved: rates.length });
-      return { rates_approved: rates.length };
-    });
-    res.json({ ok: true, approval_status: 'APPROVED', ...out });
+    const out = await db().tx(t => Approvals.logic.approve(t, prop(req), req.user.user_id, 'ROOM_TYPE', req.params.id));
+    res.json({ ok: true, approval_status: 'APPROVED', rates_approved: out.rates_approved });
   }));
   // A PENDING room type that was never sold can be withdrawn together with its pending rates.
   app.delete('/api/room-types/:id', auth, need('catalog.manage'), wrap(async (req, res) => {
@@ -280,18 +271,7 @@ module.exports = function mountCatalog(app, { getDb, auth, need, wrap, validateR
     res.json(await addRow(q, cur.add_on_id, prop(req)));
   }));
   app.post('/api/add-ons/:id/approve', auth, need('rates.approve'), wrap(async (req, res) => {
-    const out = await db().tx(async t => {
-      const cur = await addRow(t.q, req.params.id, prop(req));
-      if (!cur) throw notFound('Add-on not found.');
-      if (cur.approval_status === 'PENDING') {
-        await t.q("update add_ons set approval_status='APPROVED' where add_on_id=$1", [cur.add_on_id]);
-        await audit(t.q, req, 'ADD_ON_APPROVED', 'add_ons', cur.add_on_id, { approval_status: 'PENDING' }, { approval_status: 'APPROVED' });
-      } else if (cur.pending_unit_price !== null) {
-        await t.q('update add_ons set unit_price=pending_unit_price, pending_unit_price=null where add_on_id=$1', [cur.add_on_id]);
-        await audit(t.q, req, 'ADD_ON_PRICE_APPROVED', 'add_ons', cur.add_on_id, { unit_price: cur.unit_price }, { unit_price: cur.pending_unit_price });
-      } else throw conflict('Nothing is waiting for approval.', 'INVALID_STATE');
-      return addRow(t.q, cur.add_on_id, prop(req));
-    });
+    const out = await db().tx(async t => { await Approvals.logic.approve(t, prop(req), req.user.user_id, 'ADD_ON', req.params.id); return addRow(t.q, req.params.id, prop(req)); });
     res.json(out);
   }));
   app.delete('/api/add-ons/:id', auth, need('rates.manage'), wrap(async (req, res) => {

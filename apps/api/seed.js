@@ -11,7 +11,7 @@ const DEMO = {
 };
 const SECOND = { email: 'frontdesk.b@fds.test', password: 'Willow-Demo-2026' };    // only with { secondProperty: true }
 
-async function seed(d, { secondProperty = false } = {}) {
+async function seed(d, { secondProperty = false, taxPct = 0 } = {}) {
   const q = d.q;
   const [prop] = await q("insert into properties(name,address,currency_code) values('Harbour View Hotel (demo)','1 Example Road, Sample City','MYR') returning property_id");
   for (const u of Object.values(DEMO))
@@ -43,6 +43,8 @@ async function seed(d, { secondProperty = false } = {}) {
   await rule('Family Suite', 'BASE', 320);
   await rule('Family Suite', 'SPECIFIC_DATE', 380, { date: '2026-12-31', priority: 3 }, 'PENDING');   // waits for approval
 
+  // `seed fds`: the staff web app prices every folio with SST 6% + service charge 10%, so the property uses that one standard for the web app, the website and the mobile app
+  if (taxPct) await q("insert into property_settings(property_id,tax_name,tax_rate_pct) values($1,'SST 6% + Service 10%',$2) on conflict (property_id) do update set tax_name=excluded.tax_name, tax_rate_pct=excluded.tax_rate_pct", [prop.property_id, taxPct]);
   const [adm] = await q('select user_id from users where email=$1', [DEMO.admin.email]);
   const t = S.today();
   await d.tx(async tx => {

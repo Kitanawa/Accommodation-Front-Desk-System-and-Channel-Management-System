@@ -5,7 +5,7 @@ import { useState,useDeferredValue } from 'react'
 import { statusOf, occupiesInventory, physicalRooms, roomsForBooking, canAssign, roomsOnDate, folioTotals } from './bookingRules'
 import Billing from './Billing'
 import StayChange from './StayChange'
-export default function Operations({ page, bookings, rooms, today, dateKey, add, parse, pretty, money, updateBookings, newBooking, property, user, onRoomsSave }) {
+export default function Operations({ page, bookings, rooms, today, dateKey, add, parse, pretty, money, updateBookings, newBooking, property, user, onRoomsSave, serverCleaning, onCleaning }) {
   const [query,setQuery]=useState('')
   const [status,setStatus]=useState('All')
   const [type,setType]=useState('all')
@@ -15,7 +15,8 @@ export default function Operations({ page, bookings, rooms, today, dateKey, add,
   const [action,setAction]=useState('')
   const [message,setMessage]=useState('')
   const [plannerDate,setPlannerDate]=useState(dateKey(today))
-  const [cleaning,setCleaning]=useState(()=>{try{return JSON.parse(localStorage.getItem('miri-cleaning')||'{}')}catch{return {}}})
+  const [localCleaning,setCleaning]=useState(()=>{try{return JSON.parse(localStorage.getItem('miri-cleaning')||'{}')}catch{return {}}})
+  const cleaning=serverCleaning??localCleaning // server mode: the API owns housekeeping
   const [selectedRoom,setSelectedRoom]=useState(null)
   const [draft,setDraft]=useState({})
   const deferredQuery=useDeferredValue(query)
@@ -29,7 +30,7 @@ export default function Operations({ page, bookings, rooms, today, dateKey, add,
   function persist(next) {if(updateBookings(next)) {setMessage('Changes saved.');return true}return false}
   function updateBooking(patch) {if(persist(bookings.map(b=>b.id===selectedId?{...b,...patch}:b)))setAction('')}
   function open(b) {setSelectedId(b.id);setAction('');setMessage('')}
-  function saveCleaning(event) {event.preventDefault();const next={...cleaning,[selectedRoom]:draft};try{if(draft.status==='Blocked'&&active.some(b=>b.end>dateKey(today)&&roomsForBooking(b).includes(selectedRoom)))throw new Error('This room has an active reservation assignment. Move or reassign it before blocking.');validateRoomChange(rooms,rooms,bookings,next,dateKey(today));localStorage.setItem('miri-cleaning',JSON.stringify(next));setCleaning(next);setMessage('Room task saved.')}catch(error){setMessage(error.message||'Could not save room task.')}}
+  function saveCleaning(event) {event.preventDefault();const next={...cleaning,[selectedRoom]:draft};try{if(draft.status==='Blocked'&&active.some(b=>b.end>dateKey(today)&&roomsForBooking(b).includes(selectedRoom)))throw new Error('This room has an active reservation assignment. Move or reassign it before blocking.');validateRoomChange(rooms,rooms,bookings,next,dateKey(today));if(onCleaning){onCleaning(next).then(()=>setMessage('Room task saved.')).catch(e=>setMessage(e.message||'Could not save room task.'));return}localStorage.setItem('miri-cleaning',JSON.stringify(next));setCleaning(next);setMessage('Room task saved.')}catch(error){setMessage(error.message||'Could not save room task.')}}
   function applyAction(event) {
     event.preventDefault()
     if(action==='assign') {const numbers=draft.numbers||[];if(!canAssign(selected,numbers,bookings,units,cleaning)){setMessage('Choose the required number of available rooms.');return}updateBooking({roomNumbers:numbers})}
@@ -44,12 +45,13 @@ export default function Operations({ page, bookings, rooms, today, dateKey, add,
     if(action==='cancel')updateBooking({status:'Cancelled',cancellationReason:draft.reason})
   }
   function checkIn() {const assigned=roomsForBooking(selected);if(selected.start>dateKey(today)||selected.end<=dateKey(today)){setMessage('Check-in is only available during the booked stay.');return}if(!canAssign(selected,assigned,bookings,units,cleaning)||assigned.some(n=>(cleaning[n]?.status||'Clean')!=='Clean')){setMessage('Assign clean, available rooms before check-in.');return}updateBooking({status:'Checked-in'})}
-  function checkOut(){if(folioTotals(selected).balance!==0){setMessage('Settle the outstanding folio balance before check-out.');return}const nextCleaning={...cleaning};roomsForBooking(selected).forEach(n=>{nextCleaning[n]={...nextCleaning[n],status:'Dirty'}});try{localStorage.setItem('miri-cleaning',JSON.stringify(nextCleaning))}catch{setMessage('Unable to save housekeeping changes.');return}if(persist(bookings.map(b=>b.id===selectedId?{...b,status:'Checked-out',actualCheckOutDate:dateKey(today)}:b))){setCleaning(nextCleaning);setAction('')}}
+  function checkOut(){if(folioTotals(selected).balance!==0){setMessage('Settle the outstanding folio balance before check-out.');return}const nextCleaning={...cleaning};roomsForBooking(selected).forEach(n=>{nextCleaning[n]={...nextCleaning[n],status:'Dirty'}});if(onCleaning){if(persist(bookings.map(b=>b.id===selectedId?{...b,status:'Checked-out',actualCheckOutDate:dateKey(today)}:b)))setAction('');return}try{localStorage.setItem('miri-cleaning',JSON.stringify(nextCleaning))}catch{setMessage('Unable to save housekeeping changes.');return}if(persist(bookings.map(b=>b.id===selectedId?{...b,status:'Checked-out',actualCheckOutDate:dateKey(today)}:b))){setCleaning(nextCleaning);setAction('')}}
   const listing=(list)=> <div className="table-scroll"><table className="ops-table"><thead><tr><th>Booking ID</th><th>Guest</th><th>Room type</th><th>Check-in</th><th>Check-out</th><th>Status</th><th>Action</th></tr></thead><tbody>{list.map(b=><tr key={b.id}><td>{b.id.slice(0,8).toUpperCase()}</td><td><strong>{b.guest.name}</strong><small>{b.guest.phone}</small></td><td>{rooms.find(r=>r.id===b.room)?.name}<small>{b.quantity} room(s) · {roomsForBooking(b).join(', ')||'Unassigned'}</small></td><td>{pretty(parse(b.start))}</td><td>{pretty(parse(b.end))}</td><td><span className={`status-pill ${statusOf(b).toLowerCase()}`}>{statusOf(b)}</span></td><td><button className="secondary" onClick={()=>open(b)}>View</button></td></tr>)}</tbody></table>{!list.length&&<p className="empty-state">No reservations match this view.</p>}</div>
   if(selected && action==='folio')return <Billing rooms={rooms} property={property} bookings={bookings} updateBookings={updateBookings} money={money} initialId={selected.id} onBack={()=>setAction('')} />
   if(selected && ['move','extend'].includes(action))return <StayChange mode={action} booking={selected} bookings={bookings} units={units} cleaning={cleaning} rooms={rooms} today={dateKey(today)} money={money} error={message} onBack={()=>{setAction('');setMessage('')}} onSave={next=>{
     const nextCleaning={...cleaning}
     if(action==='move')roomsForBooking(selected).filter(n=>!roomsForBooking(next).includes(n)).forEach(n=>{nextCleaning[n]={...nextCleaning[n],status:'Dirty'}})
+    if(onCleaning){if(persist(bookings.map(b=>b.id===next.id?next:b)))setAction('');return}
     try{localStorage.setItem('miri-cleaning',JSON.stringify(nextCleaning))}catch{setMessage('Unable to save housekeeping changes.');return}
     if(persist(bookings.map(b=>b.id===next.id?next:b))){setCleaning(nextCleaning);setAction('')}else{try{localStorage.setItem('miri-cleaning',JSON.stringify(cleaning))}catch{/* Storage unavailable. */}setMessage('Unable to save the stay change.');}
   }} />

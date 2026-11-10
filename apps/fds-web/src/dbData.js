@@ -6,6 +6,7 @@
 // true when GET /api/info says the API is running on a PostgreSQL server (DATABASE_URL). Never throws.
 export async function detectDatabase(isDemo) {
   if (isDemo) return false
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_FORCE_DB === 'true') return true   // for a server whose database is not reported as PostgreSQL (tests, built-in database)
   try {
     const response = await fetch('/api/info', { credentials: 'same-origin', signal: AbortSignal.timeout(5000) })
     if (!response.ok) return false

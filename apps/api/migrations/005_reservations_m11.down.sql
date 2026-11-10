@@ -1,0 +1,11 @@
+DROP INDEX reservation_rooms_type;
+DROP INDEX reservations_property_status;
+DROP INDEX reservations_property_checkin;
+DROP TABLE reservation_holds;
+UPDATE reservations SET status='CANCELLED' WHERE status='NO_SHOW';
+ALTER TABLE reservations DROP COLUMN checked_out_at;
+ALTER TABLE reservations DROP COLUMN checked_in_at;
+ALTER TABLE reservations DROP COLUMN status_changed_at;
+ALTER TABLE reservations DROP COLUMN status_remark;
+ALTER TABLE reservations DROP CONSTRAINT reservations_status_check;
+ALTER TABLE reservations ADD CONSTRAINT reservations_status_check CHECK (status IN ('CONFIRMED','CHECKED_IN','CHECKED_OUT','CANCELLED'));
