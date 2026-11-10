@@ -57,7 +57,7 @@ module.exports = function mountFrontdesk(app, { getDb, auth, need, wrap }) {
     const rows = await db.q(`select r.reservation_id, r.reservation_ref, r.check_in_date::text check_in, r.check_out_date::text check_out, r.estimated_arrival::text arrival,
         r.total_guests, r.status, r.special_requests, r.notes, r.status_remark, r.checked_out_at::date::text checked_out_on,
         g.guest_id, g.full_name, g.phone, g.email, g.nationality, g.id_passport_no, g.address, s.name source,
-        rr.room_type_id, rr.rate_total::float8 room_total, rm.room_number, f.folio_id
+        rr.room_type_id, rr.rate_total::float8 room_total, rm.room_number, f.folio_id, f.tax_name, f.tax_rate_pct::float8 tax_rate
       from reservations r join guests g using(guest_id) join booking_sources s using(source_id) join reservation_rooms rr using(reservation_id)
       left join rooms rm on rm.room_id=rr.room_id join folios f using(reservation_id)
       where r.property_id=$1 order by r.created_at`, [pid]);
@@ -67,6 +67,7 @@ module.exports = function mountFrontdesk(app, { getDb, auth, need, wrap }) {
     const METHOD = { CASH: 'Cash', CARD: 'Card', ONLINE: 'Online', BANK_TRANSFER: 'Bank transfer' };
     const bookings = rows.map(r => ({
       id: r.reservation_id, ref: r.reservation_ref, room: r.room_type_id, start: r.check_in, end: r.check_out, quantity: 1, total: r.room_total,
+      taxRatePct: r.tax_rate, taxName: r.tax_name || '',   // the rate saved on this folio when it was opened; the app must use it, not its own 16%
       status: STATUS[r.status] || 'Upcoming', ...(r.room_number ? { roomNumbers: [r.room_number] } : {}),
       ...(r.status === 'CANCELLED' && r.status_remark ? { cancellationReason: r.status_remark } : {}),
       ...(r.checked_out_on ? { actualCheckOutDate: r.checked_out_on } : {}),

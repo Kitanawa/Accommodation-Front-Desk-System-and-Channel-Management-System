@@ -81,7 +81,7 @@ export async function createPaidFolioPdf(booking, property={}, rooms=[]) {
  if(charges.length>3){const remaining=charges.slice(2),amount=remaining.reduce((sum,charge)=>sum+charge.amountCents,0);tableRow('—',`Other services (${remaining.length} entries; details in guest folio)`,money(amount),amount)}
  y+=8
  reserve(33)
- for(const [label,value,highlight] of [['Subtotal',totals.subtotal,false],['SST (6%)',totals.sst,false],['Service Charges (10%)',totals.service,false],['Total',totals.charges,true]]){
+ for(const [label,value,highlight] of [['Subtotal',totals.subtotal,false],...(totals.taxLines||[['SST (6%)',totals.sst],['Service Charges (10%)',totals.service]]).map(([l,v])=>[l,v,false]),['Total',totals.charges,true]]){
   pdf.setLineWidth(highlight?0.4:0.2);pdf.setDrawColor('#000000');pdf.rect(102,y,90,8);pdf.line(149,y,149,y+8)
   text(label,105,y+1.8,42,9,highlight);text(money(value),152,y+1.8,37,9,highlight,ink,'right');y+=8
  }

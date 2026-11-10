@@ -32,8 +32,18 @@ export function receiptCharges(subtotal){
  const sst=Math.round(subtotal*6/100),service=Math.round(subtotal*10/100)
  return {subtotal,sst,service,total:subtotal+sst+service}
 }
+// Tax lines of a folio. A booking from the database carries taxRatePct, the rate the server saved on its folio: use that so the balance
+// always matches the server. Local bookings keep the demo rule: SST 6% + service charge 10%.
+export function folioTaxLines(subtotal,b){
+ if(typeof b?.taxRatePct!=='number'){const r=receiptCharges(subtotal);return [['SST (6%)',r.sst],['Service Charges (10%)',r.service]]}
+ const rate=b.taxRatePct,tax=Math.round(subtotal*rate/100)
+ if(rate===16){const sst=Math.round(subtotal*6/100);return [['SST (6%)',sst],['Service Charges (10%)',tax-sst]]}
+ return rate>0?[[`${b.taxName||'Tax'} (${rate}%)`,tax]]:[]
+}
 export function folioTotals(b) {
- const breakdown=receiptCharges(Math.round(b.total*100)+(b.charges||[]).reduce((sum,c)=>sum+c.amountCents,0))
+ const subtotal=Math.round(b.total*100)+(b.charges||[]).reduce((sum,c)=>sum+c.amountCents,0),taxLines=folioTaxLines(subtotal,b)
+ const tax=taxLines.reduce((sum,[,v])=>sum+v,0)
+ const breakdown={subtotal,sst:taxLines.find(l=>l[0].startsWith('SST'))?.[1]||0,service:taxLines.find(l=>l[0].startsWith('Service'))?.[1]||0,taxLines,total:subtotal+tax}
  const charges=breakdown.total,paid=(b.payments||[]).reduce((sum,p)=>sum+p.amountCents,0)
  return {...breakdown,charges,paid,balance:charges-paid,status:charges-paid===0?'Paid':paid>0?'Partially Paid':'Unpaid'}
 }
