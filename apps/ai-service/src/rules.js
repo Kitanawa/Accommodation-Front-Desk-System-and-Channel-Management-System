@@ -1,6 +1,9 @@
 // Rules-based understanding (no model). English only, first match wins, English month names only.
 // Used when LLM_PROVIDER=rules or when the model call fails.
 import { addDays, isValidIso, today } from './dates.js';
+import { findRoomTypeInText } from './roomnames.js';
+import { CONFIRM_RE, SMALLTALK_RE } from './context.js';
+import { taskFields } from './roomtask.js';
 
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 const MONTH_RE = '(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*';
@@ -61,6 +64,9 @@ export function parseRules(message, roomTypeNames = [], tdy = today()) {
     if (new RegExp(`(^|[^a-z0-9])${escapeRe(name.toLowerCase())}($|[^a-z0-9])`).test(t)) { req.room_type = name; break; }
   }
 
+  // A typo or a short form of a room type name (for example "delux king") still finds the real name.
+  if (!req.room_type) req.room_type = findRoomTypeInText(t, roomTypeNames);
+
   // "for 2 guests" always works; a bare "for 2" only when it is not part of a date or a number of nights.
   const gp = t.match(/(\d{1,2})\s*(?:guests?|people|persons?|pax|adults?)/);
   if (gp) req.guests = Number(gp[1]);
@@ -77,7 +83,8 @@ export function parseRules(message, roomTypeNames = [], tdy = today()) {
   req.wants_booking = /\b(book|reserve|block)\b/.test(t);
 
   // --- intent ---
-  if (/\b(refund|discount|voucher|promo|waive|waiver|compensat|change (the )?rate|lower (the )?rate|special rate)\b/.test(t)) req.intent = 'refuse_financial';
+  if (taskFields(message, req)) req.intent = 'room_task';
+  else if (/\b(refund|discount|voucher|promo|waive|waiver|compensat|change (the )?rate|lower (the )?rate|special rate)\b/.test(t)) req.intent = 'refuse_financial';
   else if (/\bcancel/.test(t) && req.booking_ref) req.intent = 'cancel_check';
   else if (/\bcancel/.test(t)) req.intent = 'refuse_cancel';
   else if (/\b(delete|remove|move|transfer|reassign|edit|modify|amend)\b|\b(mark|set)\b.*\bpaid\b|\bchange (the )?(dates?|room|booking|guest)\b/.test(t)) req.intent = 'refuse_change';
@@ -98,5 +105,12 @@ export function parseRules(message, roomTypeNames = [], tdy = today()) {
     if (name) req.guest_name = name[1].trim();
   }
   if (req.intent === 'booking_lookup' && !req.booking_ref && !req.guest_name) req.intent = 'unknown';
+  // Bare answers and chit-chat; a room type with no dates is an availability question (the dates may come from the chat memory).
+  if (req.intent === 'unknown') {
+    const bare = t.replace(/[!.?,~。！？，]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (CONFIRM_RE.test(bare)) req.intent = 'confirm';
+    else if (SMALLTALK_RE.test(bare)) req.intent = 'smalltalk';
+    else if (req.room_type) req.intent = 'availability';
+  }
   return req;
 }

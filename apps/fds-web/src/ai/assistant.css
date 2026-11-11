@@ -26,3 +26,5 @@
 .ai-chip { border: 1px solid rgba(127, 127, 127, 0.55); background: rgba(127, 127, 127, 0.14); color: inherit; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer; }
 .ai-chip:hover { background: rgba(127, 127, 127, 0.28); }
 .ai-chip:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.ai-suggestion { border: 1px dashed rgba(127, 127, 127, 0.6); border-radius: 8px; padding: 10px 12px; margin: 6px 0 10px; }
+.ai-suggestion p { margin: 6px 0; }

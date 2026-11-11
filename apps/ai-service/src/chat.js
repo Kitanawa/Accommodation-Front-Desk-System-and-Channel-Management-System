@@ -10,6 +10,9 @@ import { dbReady } from './dbstate.js';
 import { getIdentity } from './identity.js';
 import * as F from './facts.js';
 import { buildFollowUp, buildAction } from './followups.js';
+import { sanitizeContext, applyContext } from './context.js';
+import { friendly } from './friendly.js';
+import { guardTask, taskReply, taskAction, taskFollowUp, checkTaskRoom, cleanRoomList } from './roomtask.js';
 
 // Room type names come from the browser, so they are cleaned before they go into a prompt.
 export function cleanNames(list) {
@@ -24,9 +27,9 @@ export function cleanNames(list) {
   return out;
 }
 
-async function understand(message, names, tdy) {
+async function understand(message, names, tdy, mem) {
   try {
-    const r = await understandWithLlm(message, names, tdy);
+    const r = await understandWithLlm(message, names, tdy, mem);
     if (r) return { req: r, via: r.source };
   } catch (e) {
     console.warn('LLM understanding failed, using rules:', e.message);
@@ -61,6 +64,9 @@ function replyFor(req, L, lang, live) {
     case 'refuse_change': return L.refuseChange;
     case 'hold_72h': return L.hold72;
     case 'unknown': return L.help;
+    case 'smalltalk': return friendly(lang).smalltalk;
+    case 'confirm': return friendly(lang).confirmNothing;
+    case 'room_task': return taskReply(lang, req);
     case 'availability': {
       if (!req.from || !req.to) return L.needDates();
       const nights = diffDays(req.from, req.to);
@@ -125,7 +131,7 @@ async function dataReply(req, L, lang, { q, propertyId, tdy, ctx = {} }) {
 }
 
 // cookie: the browser's Cookie header. With a valid FDS session AND a read-only database that passed the guard, answers come from the database.
-export async function handleChat(message, { roomTypes = [], now, cookie, lang: forcedLang } = {}) {
+export async function handleChat(message, { roomTypes = [], now, cookie, lang: forcedLang, context, taskRooms } = {}) {
   const tdy = now || today();
   const live = dbReady();
   const identity = live ? await getIdentity(cookie) : null;
@@ -135,7 +141,10 @@ export async function handleChat(message, { roomTypes = [], now, cookie, lang: f
     try { q = makeQ(); names = cleanNames((await F.roomTypes(q, identity.propertyId)).map((t) => t.name)); }
     catch (e) { console.warn('room data unavailable:', e.message); q = null; }
   }
-  const { req, via } = await understand(message, names, tdy);
+  const mem = sanitizeContext(context, names);
+  const { req, via } = await understand(message, names, tdy, mem);
+  applyContext(req, mem);
+  if (req.intent === 'room_task') { guardTask(req, message); checkTaskRoom(req, cleanRoomList(taskRooms)); }
   const forced = LANGS.includes(forcedLang) ? forcedLang : null;
   const { lang, unsupported } = forced ? { lang: forced, unsupported: false } : pickLang(req, message);
   const L = messages(lang);
@@ -154,5 +163,5 @@ export async function handleChat(message, { roomTypes = [], now, cookie, lang: f
     }
   }
   if (unsupported) reply = `${reply}\n${UNSUPPORTED_NOTE}`;
-  return { reply, request: req, lang, source: via, validated: !problem, writer: 'template', data: answeredFromDatabase ? 'database (read-only)' : 'none', followUp: buildFollowUp(lang, { req, problem, ctx, tdy }), action: buildAction({ req, problem, ctx, tdy }) };
+  return { reply, request: req, lang, source: via, validated: !problem, writer: 'template', data: answeredFromDatabase ? 'database (read-only)' : 'none', followUp: req.intent === 'room_task' ? taskFollowUp(lang, req) : buildFollowUp(lang, { req, problem, ctx, tdy }), action: req.intent === 'room_task' ? taskAction(req) : buildAction({ req, problem, ctx, tdy }) };
 }

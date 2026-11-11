@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './assistant.css'
-import { loadChat, saveChat, clearChat } from './chatStorage'
+import { loadChat, saveChat, clearChat, loadContext, saveContext } from './chatStorage'
 
 const MAX_INPUT = 500
 const REQUEST_TIMEOUT_MS = 35000
@@ -11,12 +11,13 @@ const NOTE = { openai: 'Understood by the AI model', local: 'Understood by the l
 // The popup chat. It sends the staff message (and the names of the bookable room types) to the AI service
 // and shows the reply. The service is read-only: it never books, changes or cancels anything.
 // Room data is not connected yet, so for now replies only say what the assistant understood.
-export default function AssistantPopup({ user, roomTypes = [], onAction }) {
+export default function AssistantPopup({ user, roomTypes = [], taskRooms = [], onAction }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState(() => loadChat(localStorage, user.id))
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [followUp, setFollowUp] = useState(null)
+  const [memory, setMemory] = useState(() => loadContext(localStorage, user.id))
   const endRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -40,17 +41,24 @@ export default function AssistantPopup({ user, roomTypes = [], onAction }) {
     setMessages(list => [...list, { id: newId(), role: 'user', text: question }])
     setText('')
     setBusy(true)
+    const context = { history: messages.filter(m => m.role === 'user').slice(-4).map(m => m.text.slice(0, 300)), last: memory }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     let answer = { id: newId(), role: 'assistant', text: UNAVAILABLE }
     try {
-      const response = await fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, roomTypes, lang: forcedLang }), signal: controller.signal })
+      const response = await fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, roomTypes, taskRooms, lang: forcedLang, context }), signal: controller.signal })
       const data = await response.json().catch(() => null)
       if (response.ok && typeof data?.reply === 'string') {
         const follow = data.followUp && typeof data.followUp.text === 'string' ? data.followUp : null
         answer = { id: newId(), role: 'assistant', text: follow ? `${data.reply}\n\n${follow.text}` : data.reply, meta: NOTE[data.source] || (typeof data.source === 'string' ? `Understood by ${data.source}` : undefined) }
         setFollowUp(follow && Array.isArray(follow.buttons) && follow.buttons.length ? { buttons: follow.buttons, lang: data.lang } : null)
         if (data.action) onAction?.(data.action)
+        const understood = data.request
+        if (understood?.intent === 'availability' && (understood.room_type || (understood.from && understood.to))) {
+          const next = { room_type: understood.room_type || null, from: understood.from || null, to: understood.to || null, guests: understood.guests || null }
+          setMemory(next)
+          saveContext(localStorage, user.id, next)
+        }
       }
       else if (response.status === 400 && typeof data?.error === 'string') answer = { id: newId(), role: 'assistant', text: data.error }
     } catch {
@@ -65,6 +73,8 @@ export default function AssistantPopup({ user, roomTypes = [], onAction }) {
   function clear() {
     clearChat(localStorage)
     setMessages([])
+    setMemory(null)
+    setFollowUp(null)
   }
 
   if (!open) {
