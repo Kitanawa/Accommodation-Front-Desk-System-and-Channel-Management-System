@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { occupiesInventory, canAssign } from './bookingRules.js'
+import { occupiesInventory, canAssign, bookingRef } from './bookingRules.js'
 const units=[{id:'201',type:'def'},{id:'202',type:'def'},{id:'301',type:'twin'}]
 const booking={id:'a',room:'def',quantity:1,start:'2026-10-15',end:'2026-10-18'}
 test('cancelled and checked-out reservations release inventory',()=>{
@@ -58,7 +58,7 @@ test('extension rejects room conflicts, invalid dates and insufficient aggregate
 test('ledger computes exact cents, partial payment and settlement',()=>{
  const charged=addFolioEntry(inHouse,'charges',{id:'c',date:'2026-10-15',amount:'10.25',description:'Laundry'})
  const partial=addFolioEntry(charged,'payments',{id:'p',date:'2026-10-15',amount:'500.10',description:'Receipt 1',method:'Cash'})
- assert.deepEqual(folioTotals(partial),{subtotal:76025,sst:4562,service:7603,total:88190,charges:88190,paid:50010,balance:38180,status:'Partially Paid'})
+ assert.deepEqual(folioTotals(partial),{subtotal:76025,sst:4562,service:7603,taxLines:[['SST (6%)',4562],['Service Charges (10%)',7603]],total:88190,charges:88190,paid:50010,balance:38180,status:'Partially Paid'})
  const settled=addFolioEntry(partial,'payments',{amount:'381.80',description:'Receipt 2',method:'Cash'})
  assert.equal(folioTotals(settled).balance,0)
  assert.equal(folioTotals(settled).status,'Paid')
@@ -88,4 +88,21 @@ test('SST and service charges apply independently to all charges, rounded to cen
  assert.equal(folioTotals(booking).sst,1800)
  assert.equal(folioTotals(booking).service,3000)
  assert.equal(booking.total,250)
+})
+
+test('bookingRef shows the server reference, or a short local id', () => {
+  assert.equal(bookingRef({ id: '07bdeab4-1111-4000-8000-000000000000', ref: 'R-GDLGR3' }), 'R-GDLGR3')
+  assert.equal(bookingRef({ id: '07bdeab4-1111-4000-8000-000000000000' }), '07BDEAB4')
+})
+
+test('folio totals use the tax rate saved on a database folio, and the demo 6% + 10% locally', () => {
+  const pay = cents => [{ id: 'p', amountCents: cents }]
+  const local = folioTotals({ total: 640, charges: [], payments: [] })
+  assert.equal(local.charges, 74240)
+  const zero = folioTotals({ total: 640, taxRatePct: 0, charges: [], payments: pay(64000) })
+  assert.equal(zero.balance, 0); assert.equal(zero.status, 'Paid'); assert.deepEqual(zero.taxLines, [])
+  const sixteen = folioTotals({ total: 360, taxRatePct: 16, charges: [{ amountCents: 1000 }], payments: [] })
+  assert.equal(sixteen.charges, 37000 + 5920); assert.deepEqual(sixteen.taxLines.map(l => l[0]), ['SST (6%)', 'Service Charges (10%)'])
+  const other = folioTotals({ total: 100, taxRatePct: 8, taxName: 'SST', charges: [], payments: [] })
+  assert.deepEqual(other.taxLines, [['SST (8%)', 800]])
 })

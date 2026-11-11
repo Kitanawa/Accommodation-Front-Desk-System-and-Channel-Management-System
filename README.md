@@ -7,12 +7,12 @@ Shared project structure for the Front Desk System, manager mobile app, direct b
 | Location | Responsibility | Current status |
 | --- | --- | --- |
 | `apps/fds-web` | React Front Desk System | Working frontend demo, including pricing and Manager approvals. Sign-in and the Staff screen use the API; other screens use demo data |
-| `apps/api` | Node.js API on PostgreSQL: sign-in, roles, staff, rooms, rates, add-ons | Implemented for sign-in, roles, staff accounts and M09 (rooms, rates, approvals, add-ons). Reservation endpoints exist but the FDS screens do not use them yet. See `apps/api/README.md` |
+| `apps/api` | Node.js API on PostgreSQL | Sign-in, roles, staff, rooms, rates, add-ons, reservations, billing and folio, housekeeping, approvals, guest booking engine, guest profiles, property settings, and one-call front desk state (`GET /api/frontdesk/state`). 927 automated checks. See `apps/api/README.md`, `apps/api/docs/API_CONTRACT.md` and `apps/api/BACKEND_CHANGES.md` |
 | `apps/booking-web` | Direct booking website / booking engine | Working responsive prototype; separate demo inventory |
 | `apps/manager-mobile` | Manager notifications and approvals | React Native + Expo app; local demo data |
 | `packages/contracts` | Shared API contracts | Reserved. The API contract is `apps/api/docs/API_CONTRACT.md` and `apps/api/docs/openapi.yaml` |
 | `packages/web-ui` | Shared web components | Reserved; current FDS components remain in the FDS app |
-| `db/migrations` | PostgreSQL schema migrations | Reserved. The migrations currently live in `apps/api/migrations` (001 to 004) |
+| `db/migrations` | PostgreSQL schema migrations | Reserved. The migrations currently live in `apps/api/migrations` (001 to 008) |
 | `infra/docker` | Local service definitions | Reserved |
 | `infra/nginx` | Hostinger reverse proxy configuration | Reserved |
 | `docs` | Integration documentation | See `docs/project-structure.md` |
@@ -51,6 +51,8 @@ Window 1, the API:
 cd apps\api
 npm install
 set PORT=3001
+npm run migrate
+npm run seed:fds
 npm start
 ```
 
@@ -59,8 +61,10 @@ With no `DATABASE_URL` the API uses a built-in PostgreSQL engine and keeps its d
 ```
 set DATABASE_URL=postgres://postgres:YOUR_PASSWORD@localhost:5432/fds
 npm run migrate
-npm run seed
+npm run seed:fds
 ```
+
+`seed:fds` loads the demo data with tax 16% (SST 6% + service 10%), the same as the front desk screens. Plain `npm run seed` keeps tax at 0% (the automated tests use it).
 
 Window 2, the frontend, in the repository root:
 
@@ -83,11 +87,11 @@ In `apps\ai-service`: `npm install`, `copy .env.example .env`, put your own Open
 
 ## Integration status
 
-React / Node.js / PostgreSQL / Hostinger remain the agreed stack. The frontend is connected to the API for **sign-in and the Staff screen only**. Reservations, rooms, pricing and the booking website still use demo data stored in browser localStorage; keeping the same http://127.0.0.1:5176 origin preserves existing local records. Nothing is deployed to Hostinger.
+React / Node.js / PostgreSQL / Hostinger remain the agreed stack. The API now has endpoints for every item on the "not connected yet" list (reservations, amend and cancel, room assignment, check-in and check-out, move room and extend stay, folio and billing, dashboard and room planner data, housekeeping, room types, pricing and rate approvals, add-ons, guest profiles, reports, property settings). The frontend is connected to the API for **sign-in and the Staff screen only**; the other screens still use demo data stored in browser localStorage until they are wired to these endpoints; keeping the same http://127.0.0.1:5176 origin preserves existing local records. Nothing is deployed to Hostinger.
 
 Demo mode (no API): set `VITE_DEMO_AUTH=true` (the default in `.env.example`) and sign in with `admin@hotel.local` / `DemoAdmin123!`. These are synthetic demo credentials, not production authentication. In demo mode, Staff and Admin can submit pricing changes and Manager can approve or reject them.
 
-With the API, sign-in uses a cookie (`fds_session`) and the roles are `admin`, `manager` and `front_desk`. The API is reviewed by no teammate yet and has been tested on one PostgreSQL 16 server and the built-in engine, not on the team's own database setup.
+With the API, sign-in uses a cookie (`fds_session`) and the roles are `admin`, `manager` and `front_desk`. The API is reviewed by no teammate yet. All 927 automated checks pass on the built-in engine and on a real PostgreSQL 16.15 server, not on the team's own database setup.
 
 Known differences between the frontend and the API (the team needs to decide):
 - The Staff screen lets a Manager manage Managers and offers "Pending Approval". The API follows SRS Draft 2: a Manager manages Front Desk accounts only, and there is no pending status.
@@ -101,3 +105,12 @@ Run `npm run dev:booking` from root, then open http://127.0.0.1:5177/. The publi
 
 Run `npm run dev:mobile` for Expo Metro (port 8081), or `npm run dev:mobile:web` for the same native components in a browser at http://localhost:5180/. The app supports Android/iOS export and retains the Manager approval UI. It still uses local demo data; no backend or push connection is configured. See `apps/manager-mobile/README.md` for device requirements. The previous Vite preview on 5178 has been replaced.
 
+
+## Backend limits (known)
+
+- One room per reservation; a multi-room booking is several reservations.
+- Room Planner stop-sell dates, inventory blocks and unit notes are not stored by the API.
+- Rate changes can be submitted by Manager and Admin only; Front Desk cannot (the frontend demo allows it).
+- An approved rate rule cannot be deleted; archive and restore of room types do not exist.
+- One tax rate per property (16%); rounding can differ by 1 sen from the frontend, which rounds per line.
+- No payment gateway; confirmation emails are queued, not sent.

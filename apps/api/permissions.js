@@ -19,6 +19,11 @@ const MATRIX = {
   'reservations.manage':      ALL,               // Create/edit/cancel reservations: Full for all
   'stay.operate':             ALL,               // Assign rooms / check-in / check-out: Full for all
   'folio.manage':             ALL,               // Folio, charges & payments: Full for all
+  'billing.discount':         [ADMIN, MGR],      // not in the matrix: discounts and refund approval need management (assumption)
+  'billing.refund':           [ADMIN, MGR],
+  'settings.view':            ALL,               // property policies: everyone reads, management changes (assumption)
+  'settings.manage':          [ADMIN, MGR],
+  'maintenance.release':      [ADMIN, MGR],      // anyone reports a problem; management releases a blocked room (assumption)
   'integration.manage':       [ADMIN],           // Channel/integration settings: Full, View, No
   'integration.view':         [ADMIN, MGR],
   'reports.full':             [ADMIN, MGR],      // Reports: Full, Full, Operational

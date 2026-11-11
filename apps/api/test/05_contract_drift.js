@@ -7,7 +7,7 @@ const { endpoints } = require('../docs/contract');
 const { CODES } = require('../errors');
 
 const registered = new Set();
-for (const l of app._router.stack) if (l.route && l.route.path.startsWith('/api')) for (const m of Object.keys(l.route.methods)) registered.add(`${m.toUpperCase()} ${l.route.path.replace(/:id/g, '{id}')}`);
+for (const l of app._router.stack) if (l.route && l.route.path.startsWith('/api')) for (const m of Object.keys(l.route.methods)) registered.add(`${m.toUpperCase()} ${l.route.path.replace(/:([A-Za-z]+)/g, '{$1}')}`);
 const implemented = new Set(endpoints.filter(e => e.status === 'implemented').map(e => `${e.m} ${e.p}`));
 const planned = endpoints.filter(e => e.status !== 'implemented');
 

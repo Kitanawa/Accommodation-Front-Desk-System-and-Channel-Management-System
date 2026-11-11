@@ -11,18 +11,28 @@ const accepts = async (d, sql) => { try { await d.exec(sql); return true; } catc
 
 (async () => {
   const d = await createEmbedded('memory');
-  ok(JSON.stringify(M.versions()) === '["001_init","002_auth","003_phone","004_rooms_rates"]', 'four migrations, in order: 001_init, 002_auth, 003_phone, 004_rooms_rates');
+  ok(JSON.stringify(M.versions()) === '["001_init","002_auth","003_phone","004_rooms_rates","005_reservations_m11","006_billing_operations_m13","007_approvals_booking_engine","008_guest_profiles_property_details","009_guest_accounts"]', 'nine migrations, in order: 001_init to 009_guest_accounts');
   ok((await M.status(d)).every(s => !s.applied), 'a new database has nothing applied');
-  ok(JSON.stringify(await M.up(d)) === '["001_init","002_auth","003_phone","004_rooms_rates"]', 'up applies all four migrations');
+  ok(JSON.stringify(await M.up(d)) === '["001_init","002_auth","003_phone","004_rooms_rates","005_reservations_m11","006_billing_operations_m13","007_approvals_booking_engine","008_guest_profiles_property_details","009_guest_accounts"]', 'up applies all nine migrations');
   ok((await M.status(d)).every(s => s.applied), 'status shows all applied');
   ok(await hasCol(d, 'users', 'phone'), '003 adds users.phone');
   ok(await hasCol(d, 'rooms', 'floor') && await hasCol(d, 'room_types', 'approval_status') && await hasCol(d, 'rate_rules', 'valid_until') && await hasCol(d, 'charges', 'add_on_id'), '004 adds floor, room type approval, rate validity dates and charges.add_on_id');
-  ok(await count(d) === 19, '19 tables exist (17 SRS entities + user_sessions + add_ons)');
+  ok(await count(d) === 34, '34 tables exist (17 SRS entities + user_sessions + add_ons + reservation_holds + 7 from M13 + 5 from M17/M21 + 2 guest account tables)');
   const ref = async () => JSON.stringify([(await d.q('select count(*)::int n from roles'))[0].n, (await d.q('select count(*)::int n from room_statuses'))[0].n, (await d.q('select count(*)::int n from booking_sources'))[0].n]);
   ok(await ref() === '[3,4,6]', 'reference data loaded: 3 roles, 4 room statuses, 6 booking sources');
   ok((await M.up(d)).length === 0, 'running up again changes nothing');
 
-  ok(JSON.stringify(await M.down(d)) === '["004_rooms_rates"]', 'down rolls back only the newest migration');
+  ok(JSON.stringify(await M.down(d)) === '["009_guest_accounts"]', 'down rolls back only the newest migration');
+  ok(!(await hasTable(d, 'guest_accounts')) && !(await hasTable(d, 'guest_account_sessions')) && !(await hasCol(d, 'booking_attempts', 'account_id')) && await hasCol(d, 'guests', 'property_id') && await count(d) === 32, '009 is gone (guest accounts, their sessions, booking_attempts.account_id), 008 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["008_guest_profiles_property_details"]', 'down again rolls back 008_guest_profiles_property_details');
+  ok(!(await hasCol(d, 'guests', 'property_id')) && !(await hasCol(d, 'guests', 'deleted_at')) && !(await hasCol(d, 'property_settings', 'logo_data_url')) && await hasCol(d, 'property_settings', 'online_deposit_pct'), '008 is gone (guest property, language, requests, deleted_at; contact and logo), 007 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["007_approvals_booking_engine"]', 'down again rolls back 007_approvals_booking_engine');
+  ok(!(await hasTable(d, 'booking_attempts')) && !(await hasTable(d, 'approval_decisions')) && !(await hasCol(d, 'property_settings', 'online_deposit_pct')) && !(await hasCol(d, 'reservations', 'cancel_fee')) && await hasTable(d, 'refunds') && await count(d) === 27, '007 is gone (5 tables, settings and cancel_fee columns), 006 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["006_billing_operations_m13"]', 'down again rolls back 006_billing_operations_m13');
+  ok(!(await hasTable(d, 'refunds')) && !(await hasTable(d, 'folio_discounts')) && !(await hasCol(d, 'charges', 'voided_at')) && !(await hasCol(d, 'payments', 'idempotency_key')) && await hasTable(d, 'reservation_holds') && await count(d) === 20, '006 is gone (7 tables, charge voiding, payment columns), 005 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["005_reservations_m11"]', 'down again rolls back 005_reservations_m11');
+  ok(!(await hasTable(d, 'reservation_holds')) && !(await hasCol(d, 'reservations', 'status_remark')) && await hasTable(d, 'add_ons') && await count(d) === 19, '005 is gone (holds table, remark and time columns), 004 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["004_rooms_rates"]', 'down again rolls back 004_rooms_rates');
   ok(!(await hasTable(d, 'add_ons')) && !(await hasCol(d, 'rooms', 'floor')) && !(await hasCol(d, 'room_types', 'approval_status')) && await hasCol(d, 'users', 'phone') && await count(d) === 18, '004 is gone, 003 is untouched');
   ok(JSON.stringify(await M.down(d)) === '["003_phone"]', 'down again rolls back 003_phone');
   ok(!(await hasCol(d, 'users', 'phone')) && await hasTable(d, 'user_sessions') && await hasCol(d, 'users', 'is_active'), 'users.phone is gone, 002 is untouched');
@@ -30,11 +40,11 @@ const accepts = async (d, sql) => { try { await d.exec(sql); return true; } catc
   ok(!(await hasTable(d, 'user_sessions')) && !(await hasCol(d, 'users', 'is_active')) && await hasTable(d, 'users'), 'user_sessions and the 002 users columns are gone, users table stays');
   ok((await d.q('select version from schema_migrations')).length === 1, 'schema_migrations records only 001_init');
   await M.up(d);
-  ok(await count(d) === 19 && await hasCol(d, 'users', 'locked_until') && await hasTable(d, 'add_ons'), 'up after down restores everything');
+  ok(await count(d) === 34 && await hasTable(d, 'guest_accounts') && await hasTable(d, 'booking_attempts') && await hasCol(d, 'users', 'locked_until') && await hasTable(d, 'add_ons') && await hasTable(d, 'reservation_holds') && await hasTable(d, 'refunds'), 'up after down restores everything');
   await M.down(d, { steps: Infinity });
   ok(await count(d) === 0, 'down all removes every table');
   await M.up(d);
-  ok(await count(d) === 19 && await ref() === '[3,4,6]', 'up after down all rebuilds the schema and reference data');
+  ok(await count(d) === 34 && await ref() === '[3,4,6]', 'up after down all rebuilds the schema and reference data');
 
   // atomic: a failing migration leaves no half-done work behind
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-'));
@@ -62,7 +72,8 @@ const accepts = async (d, sql) => { try { await d.exec(sql); return true; } catc
   ok(await rejects(d, `insert into rate_rules(room_type_id,rule_type,rate_amount,approval_status) values('${rt}','BASE',9,'REJECTED')`), 'rate status outside Pending/Approved is rejected');
   ok(await rejects(d, `insert into reservations(reservation_ref,property_id,guest_id,source_id,check_in_date,check_out_date,total_guests) values('X1','${sid}','${gid}',1,'2026-11-01','2026-11-01',1)`), 'check-out on the check-in date is rejected');
   const rid = (await d.q(`insert into reservations(reservation_ref,property_id,guest_id,source_id,check_in_date,check_out_date,total_guests) values('X2','${sid}','${gid}',1,'2026-11-01','2026-11-02',1) returning reservation_id`))[0].reservation_id;
-  ok(await rejects(d, `update reservations set status='NO_SHOW' where reservation_id='${rid}'`), 'a reservation status outside the allowed list is rejected');
+  ok(await accepts(d, `update reservations set status='NO_SHOW' where reservation_id='${rid}'`), '005: NO_SHOW is an allowed reservation status');
+  ok(await rejects(d, `update reservations set status='LOST' where reservation_id='${rid}'`), 'a reservation status outside the allowed list is rejected');
   const fid = (await d.q(`insert into folios(reservation_id,currency_code) values('${rid}','MYR') returning folio_id`))[0].folio_id;
   ok(await rejects(d, `insert into folios(reservation_id,currency_code) values('${rid}','MYR')`), 'a second folio for one reservation is rejected');
   ok(await accepts(d, `insert into payments(folio_id,amount,currency_code,method,gateway_reference) values('${fid}',10,'MYR','ONLINE','GW-1')`) &&
