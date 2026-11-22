@@ -51,7 +51,12 @@ export async function commitBookings(api, prevList, nextList, rooms) {
     const prev = prevList.find(b => b.id === next.id)
     if (!prev) {
       const n = Math.max(1, Number(next.quantity) || 1)
-      for (let i = 0; i < n; i++) { await api('/api/reservations', json('POST', reservationBody(next))); made++ }
+      for (let i = 0; i < n; i++) {
+        const created = await api('/api/reservations', json('POST', reservationBody(next))); made++
+        // a walk-in made on Stay View already names its room (and may check in at once): send those steps for the new reservation
+        if (n === 1 && created?.reservation_id && (next.roomNumbers?.length || next.status))
+          for (const [path, options] of planBookingChanges({ ...next, roomNumbers: [], roomNumber: undefined, status: undefined }, { ...next, id: created.reservation_id }, rooms)) { await api(path, options); made++ }
+      }
       continue
     }
     for (const [path, options] of planBookingChanges(prev, next, rooms)) { await api(path, options); made++ }

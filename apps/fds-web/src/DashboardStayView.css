@@ -81,3 +81,22 @@
 
 @media(max-width:1150px){.sv-layout{grid-template-columns:1fr}.sv-side{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){.stay-view{--sv-label:110px;--sv-cell:54px}.sv-side{grid-template-columns:1fr}.sv-actions{width:100%}.sv-actions input{flex:1 1 100%;width:auto;font-size:16px}.sv-scroll{max-height:none}.sv-label small{display:none}}
+
+/* walk-in booking from an empty cell */
+.sv-draft{position:relative;z-index:2;margin:5px 2px;border:2px dashed var(--gold);border-radius:6px;padding:2px 8px;display:grid;align-content:center;overflow:hidden;white-space:nowrap;background:#fff8e6;color:#7a5a12;pointer-events:none;min-width:0}
+.sv-draft strong{font-size:11px;overflow:hidden;text-overflow:ellipsis}.sv-draft small{font-size:9px;opacity:.85}
+.sv-legend i.draft{background:#fff8e6;border:1px dashed var(--gold)}
+.sv-walkin{padding:16px;display:grid;gap:10px;border-top:3px solid var(--gold);scroll-margin:16px 0 88px}
+.sv-walkin-head{display:flex;justify-content:space-between;align-items:center}.sv-walkin-head h2{margin:0;font-size:15px}.sv-walkin-head .close{position:static;padding:0 4px;min-height:auto}
+.sv-walkin-room{margin:0;font-size:12px;display:grid;gap:2px}.sv-walkin-room small{color:var(--muted);font-size:10px}
+.sv-walkin label{font-size:10px;margin:0}.sv-walkin input,.sv-walkin select{margin-top:4px}
+.sv-walkin-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sv-walkin-hint{margin:-4px 0 0;font-size:10px;color:var(--muted);line-height:1.5}
+.sv-walkin .check-label{font-size:12px}.sv-walkin .check-label.off{color:var(--muted)}.sv-walkin .check-label small{font-size:10px}
+.sv-walkin-total{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--border);padding-top:10px;font-size:11px;color:var(--muted)}.sv-walkin-total strong{font-size:18px;color:var(--primary)}
+.sv-walkin-error{margin:0;padding:8px 10px;background:var(--danger-soft);color:var(--danger);font-size:11px;border-radius:4px}
+.sv-walkin .primary{width:100%;min-height:42px;font-size:12px}
+.sv-saved{margin:0;padding:12px 14px;background:var(--primary-soft);border:1px solid var(--border);border-radius:6px;font-size:12px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;line-height:1.5}
+.sv-saved button{background:transparent;border:0;font-size:18px;line-height:1;color:var(--muted);padding:0;min-height:auto}
+@media(max-width:1150px){.sv-side:has(.sv-walkin){grid-template-columns:minmax(0,440px)}}
+.sv-walkin-sub{display:block;margin-top:4px;color:var(--muted);font-size:10px}
