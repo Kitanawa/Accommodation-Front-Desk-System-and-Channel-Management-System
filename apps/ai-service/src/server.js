@@ -18,7 +18,7 @@ app.post('/api/ai/chat', async (req, res) => {
   if (!message) return res.status(400).json({ error: 'message is required' });
   if (message.length > 500) return res.status(400).json({ error: 'message too long (max 500 characters)' });
   try {
-    res.json(await handleChat(message, { roomTypes: cleanNames(req.body?.roomTypes), cookie: req.headers.cookie, lang: req.body?.lang }));
+    res.json(await handleChat(message, { roomTypes: cleanNames(req.body?.roomTypes), cookie: req.headers.cookie, lang: req.body?.lang, context: req.body?.context, taskRooms: req.body?.taskRooms }));
   } catch (e) {
     console.error('chat failed:', e.message);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });

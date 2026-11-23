@@ -10,7 +10,7 @@ export const provider = () => (process.env.LLM_PROVIDER || 'rules').toLowerCase(
 let last = null;
 export const getLastCall = () => last;   // timing, tokens and error of the most recent call (for the server log; never sent to the browser)
 
-export async function understandWithLlm(message, roomTypeNames, todayIso) {
+export async function understandWithLlm(message, roomTypeNames, todayIso, context = null) {
   const p = provider();
   last = null;
   if (p === 'rules') return null;
@@ -20,7 +20,7 @@ export async function understandWithLlm(message, roomTypeNames, todayIso) {
   const t0 = performance.now();
   let req = null;
   try {
-    const out = await call(buildPrompt(message, roomTypeNames, todayIso));
+    const out = await call(buildPrompt(message, roomTypeNames, todayIso, context));
     info.inTok = out.inTok; info.outTok = out.outTok; info.retries = out.retries;
     req = parseModelJson(out.text, roomTypeNames);
     if (!req) info.error = 'unusable_output';
