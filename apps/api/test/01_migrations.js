@@ -11,9 +11,9 @@ const accepts = async (d, sql) => { try { await d.exec(sql); return true; } catc
 
 (async () => {
   const d = await createEmbedded('memory');
-  ok(JSON.stringify(M.versions()) === '["001_init","002_auth","003_phone","004_rooms_rates","005_reservations_m11","006_billing_operations_m13","007_approvals_booking_engine","008_guest_profiles_property_details","009_guest_accounts"]', 'nine migrations, in order: 001_init to 009_guest_accounts');
+  ok(JSON.stringify(M.versions()) === '["001_init","002_auth","003_phone","004_rooms_rates","005_reservations_m11","006_billing_operations_m13","007_approvals_booking_engine","008_guest_profiles_property_details","009_guest_accounts","010_room_type_change_requests","011_cleaning_records"]', 'eleven migrations, in order: 001_init to 011_cleaning_records');
   ok((await M.status(d)).every(s => !s.applied), 'a new database has nothing applied');
-  ok(JSON.stringify(await M.up(d)) === '["001_init","002_auth","003_phone","004_rooms_rates","005_reservations_m11","006_billing_operations_m13","007_approvals_booking_engine","008_guest_profiles_property_details","009_guest_accounts"]', 'up applies all nine migrations');
+  ok(JSON.stringify(await M.up(d)) === '["001_init","002_auth","003_phone","004_rooms_rates","005_reservations_m11","006_billing_operations_m13","007_approvals_booking_engine","008_guest_profiles_property_details","009_guest_accounts","010_room_type_change_requests","011_cleaning_records"]', 'up applies all eleven migrations');
   ok((await M.status(d)).every(s => s.applied), 'status shows all applied');
   ok(await hasCol(d, 'users', 'phone'), '003 adds users.phone');
   ok(await hasCol(d, 'rooms', 'floor') && await hasCol(d, 'room_types', 'approval_status') && await hasCol(d, 'rate_rules', 'valid_until') && await hasCol(d, 'charges', 'add_on_id'), '004 adds floor, room type approval, rate validity dates and charges.add_on_id');
@@ -22,7 +22,11 @@ const accepts = async (d, sql) => { try { await d.exec(sql); return true; } catc
   ok(await ref() === '[3,4,6]', 'reference data loaded: 3 roles, 4 room statuses, 6 booking sources');
   ok((await M.up(d)).length === 0, 'running up again changes nothing');
 
-  ok(JSON.stringify(await M.down(d)) === '["009_guest_accounts"]', 'down rolls back only the newest migration');
+  ok(JSON.stringify(await M.down(d)) === '["011_cleaning_records"]', 'down rolls back only the newest migration');
+  ok(!(await hasCol(d, 'housekeeping_tasks', 'priority')) && !(await hasCol(d, 'housekeeping_tasks', 'done_by')) && await hasCol(d, 'room_types', 'pending_changes') && await count(d) === 34, '011 is gone (cleaning priority, who finished, completion note), 010 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["010_room_type_change_requests"]', 'down again rolls back 010_room_type_change_requests');
+  ok(!(await hasCol(d, 'room_types', 'pending_changes')) && !(await hasCol(d, 'room_types', 'pending_at')) && await hasTable(d, 'guest_accounts') && await count(d) === 34, '010 is gone (waiting room type changes), 009 is untouched');
+  ok(JSON.stringify(await M.down(d)) === '["009_guest_accounts"]', 'down again rolls back 009_guest_accounts');
   ok(!(await hasTable(d, 'guest_accounts')) && !(await hasTable(d, 'guest_account_sessions')) && !(await hasCol(d, 'booking_attempts', 'account_id')) && await hasCol(d, 'guests', 'property_id') && await count(d) === 32, '009 is gone (guest accounts, their sessions, booking_attempts.account_id), 008 is untouched');
   ok(JSON.stringify(await M.down(d)) === '["008_guest_profiles_property_details"]', 'down again rolls back 008_guest_profiles_property_details');
   ok(!(await hasCol(d, 'guests', 'property_id')) && !(await hasCol(d, 'guests', 'deleted_at')) && !(await hasCol(d, 'property_settings', 'logo_data_url')) && await hasCol(d, 'property_settings', 'online_deposit_pct'), '008 is gone (guest property, language, requests, deleted_at; contact and logo), 007 is untouched');

@@ -80,7 +80,7 @@ const S = require('../service');
   ok((await api('GET', `/api/room-types/${tid}`, null, 'frontdesk')).body.rates.every(r => r.approval_status === 'APPROVED'), 'S067: and its approved rates');
   ok((await api('DELETE', `/api/room-types/${tid}`, null, 'admin')).status === 409, 'S067: an approved room type cannot be withdrawn');
   const pt = await api('PATCH', `/api/room-types/${tid}`, { max_guests: 4, description: 'Updated loft' }, 'manager');
-  ok(pt.status === 200 && pt.body.max_guests === 4 && pt.body.approval_status === 'APPROVED', 'S061: details of an approved room type change at once');
+  ok(pt.status === 200 && pt.body.max_guests !== 4 && pt.body.pending_changes && pt.body.pending_changes.max_guests === 4 && pt.body.approval_status === 'APPROVED', 'S061: details of an approved room type wait for approval (the approved details stay in force)');
   ok((await api('PATCH', `/api/room-types/${tid}`, { name: 'garden loft' }, 'manager')).status === 200, 'S061: a name that only changes case is allowed for the same room type');
   ok((await api('PATCH', `/api/room-types/${tid}`, { name: 'Garden Loft' }, 'manager')).status === 200 && (await api('PATCH', `/api/room-types/${tid}`, {}, 'manager')).status === 400, 'S061: an empty change is refused');
   const stdType = (await api('GET', '/api/room-types', null, 'admin')).body.find(x => x.name === 'Standard Twin');

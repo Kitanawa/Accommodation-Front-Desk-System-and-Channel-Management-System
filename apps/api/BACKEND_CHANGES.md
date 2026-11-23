@@ -14,7 +14,7 @@ npm start
 - Built-in database, or `set DATABASE_URL=postgres://...` first for PostgreSQL.
 - `seed:fds` loads the demo data with tax 16% (SST 6% + service 10%, the standard the staff web app uses). `npm run seed` keeps 0% (the automated tests need that).
 - Run `migrate` and `seed:fds` before the first `npm start`. If `npm start` ran first, delete the folder `apps\api\data` and repeat.
-- Demo sign-in: `admin@fds.test` / `Orchid-Demo-2026`. Tests: `npm test` (927 checks).
+- Demo sign-in: `admin@fds.test` / `Orchid-Demo-2026`. Tests: `npm test` (1006 checks).
 
 ## New or changed since the main you have
 - **Reservations, billing and operations, approvals and rules, guest booking engine** (`reservations.js`, `billing.js`, `operations.js`, `approvals.js`, `cancellation.js`, `public.js`). Migrations 005 to 007.
@@ -26,6 +26,17 @@ npm start
 - **Seed**: `npm run seed:fds` (tax 16%).
 - **Contract**: `docs/contract.js`, `API_CONTRACT.md` and `openapi.yaml` are regenerated with `npm run docs` and checked against the server by a test.
 
+## Room type changes need approval (migration 010)
+- **Room type changes wait for approval, like a rate change.** `PATCH /api/room-types/{id}` on an approved room type no longer changes it. The new name, category, guests, description, facilities or photos are stored as waiting values (`pending_changes`, `pending_at` on the room type; Administrator and Manager see them, Front Desk does not). The approved details stay in force until an Administrator, or a Manager who may approve rates, approves the request in the approval inbox (`GET /api/approvals?kind=ROOM_TYPE`, `details.is_change` is true, `details.current` and `details.changes` show before and after). Reject keeps the room type as it was and records the reason. Sending the current value again takes a waiting change back. A name that another room type took while the request waited is refused at approval. A room type that is still PENDING (new) changes at once, as before.
+- **Staff web app:** `GET /api/frontdesk/state` keeps the approved name and details in `rooms[]` and adds `detailRequest` (`changes`, `status`, `submittedAt`) while a change waits. The web app should show the approved values and the waiting ones, and Approve and Reject go through `POST /api/approvals/ROOM_TYPE/{id}/approve` and `/reject`.
+
+## Cleaning records (migration 011)
+- A cleaning task now has a `priority` (`NORMAL` or `HIGH`, default `NORMAL`), `done_by_name` (who finished it) and `completion_note` (up to 300 characters). Open tasks with HIGH priority are listed first.
+- `POST /api/housekeeping/tasks` accepts `priority`. New `PATCH /api/housekeeping/tasks/{id}` changes `notes` or `priority` of an open or in-progress task (finished or cancelled tasks answer INVALID_STATE). `POST /api/housekeeping/tasks/{id}/complete` accepts an optional `note`. `GET /api/housekeeping/tasks` can filter by `priority`; new `GET /api/housekeeping/rooms/{roomId}/history?limit=` (default 20, at most 100) returns the finished cleans of one room, newest first, with who finished each and the note.
+- `GET /api/frontdesk/state`: each `cleaning[room]` entry gains `priority` (`Normal` or `High`), and `lastCleanedAt` and `lastCleanedBy` once the room has had a finished clean. This matches the Priority choice on the web Housekeeping screen, which the backend did not store before.
+- Audit: `HOUSEKEEPING_UPDATED` (new); `HOUSEKEEPING_TASK_CREATED` now includes the priority.
+- **Tests:** 1006 checks in 18 files pass on the built-in engine and on a real PostgreSQL 16.15 server (new: `17_room_type_change_approval.js`, `18_cleaning_records.js`; two date-dependent checks were fixed).
+
 ## Known limits and assumptions
 - One room per reservation (a booking for several rooms has to be several reservations).
 - One tax rate per property. At 16% the amounts can differ by 1 sen from a client that rounds SST and service charge separately.
@@ -36,5 +47,5 @@ npm start
 - Hold length, cancellation fees, early check-in and refund approval use assumptions listed in the API contract that need confirming.
 
 ## Verified / not verified
-- 927 automated checks pass on the built-in PostgreSQL engine (Linux), and the same 927 checks (all 15 files, including the new guest, settings and room-move parts) also pass on a real PostgreSQL 16.15 server.
+- 1006 automated checks pass on the built-in PostgreSQL engine (Linux), and the same 1006 checks (all 18 files, including the new guest, settings and room-move parts) also pass on a real PostgreSQL 16.15 server.
 - Not reviewed by a teammate. Not tested on Windows.

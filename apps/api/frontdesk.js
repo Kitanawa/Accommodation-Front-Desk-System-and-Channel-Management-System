@@ -11,8 +11,9 @@ module.exports = function mountFrontdesk(app, { getDb, auth, need, wrap }) {
     const [prop] = await db.q('select p.name, p.address, p.currency_code, s.check_in_time::text, s.contact_email, s.contact_phone, s.logo_data_url, s.tax_name, s.tax_rate_pct::float8 tax_rate_pct from properties p left join property_settings s using(property_id) where p.property_id=$1', [pid]);
 
     // ---- rooms: room types, their physical rooms and rates
-    const types = await db.q(`select t.room_type_id, t.name, c.name category, t.max_guests, t.min_nights, t.description, t.facilities, t.approval_status
+    const types = await db.q(`select t.room_type_id, t.name, c.name category, t.max_guests, t.min_nights, t.description, t.facilities, t.approval_status, t.pending_changes, t.pending_at::text pending_at
       from room_types t join room_categories c using(category_id) where c.property_id=$1 order by t.name`, [pid]);
+    const cats = await db.q('select category_id, name from room_categories where property_id=$1', [pid]);
     const rms = await db.q(`select r.room_id, r.room_type_id, r.room_number, r.floor, r.status_id from rooms r join room_types t using(room_type_id) join room_categories c using(category_id) where c.property_id=$1 order by r.room_number`, [pid]);
     const rates = await db.q(`select rr.rate_rule_id, rr.room_type_id, rr.rule_type, rr.rate_amount::float8 rate_amount, rr.date_from::text date_from, rr.date_to::text date_to, rr.selected_days, rr.specific_date::text specific_date,
         rr.priority, rr.approval_status, rr.supersedes_id, rr.valid_until, rr.created_at::text created_at
@@ -37,20 +38,33 @@ module.exports = function mountFrontdesk(app, { getDb, auth, need, wrap }) {
         const after = [...approved.filter(x => !replaced.has(x.rate_rule_id)), ...pending];
         rateRequest = { pricing: pricingOf(after), previous: pricing, status: 'Pending Approval', submittedBy: '', submittedAt: pending[0].created_at, changeReason: '', ruleIds: pending.map(x => x.rate_rule_id) };
       }
+      // a change to the name or details of an approved room type waits for approval; the approved details above stay in force
+      let detailRequest = null;
+      if (!typePending && t.pending_changes && Object.keys(t.pending_changes).length) {
+        const ch = t.pending_changes, o = {};
+        if ('name' in ch) o.name = ch.name;
+        if ('category_id' in ch) o.category = (cats.find(c => c.category_id === ch.category_id) || {}).name || '';
+        if ('max_guests' in ch) o.guests = ch.max_guests;
+        if ('description' in ch) o.note = ch.description || '';
+        if ('facilities' in ch) o.facilities = Array.isArray(ch.facilities) ? ch.facilities.join(', ') : '';
+        detailRequest = { changes: o, status: 'Pending Approval', submittedAt: t.pending_at };
+      }
       const units = rms.filter(r => r.room_type_id === t.room_type_id).map(r => ({ id: r.room_number, roomId: r.room_id, floor: r.floor == null ? '' : String(r.floor), notes: '' }));
       return { id: t.room_type_id, name: t.name, category: t.category, guests: t.max_guests, rate: pricing.baseRate, stock: units.length, units,
         note: t.description || '', facilities: Array.isArray(t.facilities) ? t.facilities.join(', ') : (t.facilities || ''), publication: typePending ? 'Pending Approval' : 'Published',
-        pricing, ...(rateRequest ? { rateRequest } : {}) };
+        pricing, ...(rateRequest ? { rateRequest } : {}), ...(detailRequest ? { detailRequest } : {}) };
     });
 
     // ---- cleaning: housekeeping state per room number
-    const tasks = await db.q(`select h.room_id, h.status, h.assigned_to, h.notes, u.full_name assignee from housekeeping_tasks h left join users u on u.user_id=h.assigned_to
+    const tasks = await db.q(`select h.room_id, h.status, h.assigned_to, h.notes, h.priority, u.full_name assignee from housekeeping_tasks h left join users u on u.user_id=h.assigned_to
       where h.status in ('OPEN','IN_PROGRESS') order by h.created_at`);
+    const done = await db.q(`select r.room_id, d.done_at::text done_at, d.done_by from rooms r cross join lateral (select h.done_at, du.full_name done_by from housekeeping_tasks h left join users du on du.user_id=h.done_by where h.room_id=r.room_id and h.status='DONE' order by h.done_at desc limit 1) d`);
     const cleaning = {};
     for (const r of rms) {
       const task = tasks.find(x => x.room_id === r.room_id);
       const status = r.status_id === 4 ? 'Blocked' : r.status_id === 3 ? (task && task.status === 'IN_PROGRESS' ? 'Cleaning' : 'Dirty') : 'Clean';
-      if (status !== 'Clean' || task) cleaning[r.room_number] = { status, assignee: task ? task.assignee || '' : '', notes: task ? task.notes || '' : '' };
+      const last = done.find(x => x.room_id === r.room_id);
+      if (status !== 'Clean' || task || last) cleaning[r.room_number] = { status, assignee: task ? task.assignee || '' : '', notes: task ? task.notes || '' : '', priority: task && task.priority === 'HIGH' ? 'High' : 'Normal', ...(last ? { lastCleanedAt: last.done_at, lastCleanedBy: last.done_by || '' } : {}) };
     }
 
     // ---- bookings: one per reservation, with folio entries in the cents the app uses

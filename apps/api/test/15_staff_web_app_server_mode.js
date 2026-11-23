@@ -20,9 +20,10 @@ const { hashPassword } = require('../password');
   const rt = st.body.rooms[0];
   ok(rt.units.length === rt.stock && rt.units.every(u => u.roomId && u.id) && rt.pricing.baseRate > 0 && rt.pricing.baseRuleId && rt.publication === 'Published', 'a room type lists its rooms (number and id), its base rate and rule id, and is Published');
   const before = st.body.bookings.length;
-  const made = await api('POST', '/api/reservations', { room_type_id: rt.id, check_in: D(30), check_out: D(32), total_guests: 1, source_id: 1, guest: { full_name: 'State Guest', phone: '+60 12-111 0000' } }, FD);
+  let n30 = 30; while (D(n30) <= '2027-01-03' && D(n30 + 2) > '2026-12-20') n30++;      // stay outside the seasonal rate (20 Dec to 3 Jan) so the total is two base nights on any run date
+  const made = await api('POST', '/api/reservations', { room_type_id: rt.id, check_in: D(n30), check_out: D(n30 + 2), total_guests: 1, source_id: 1, guest: { full_name: 'State Guest', phone: '+60 12-111 0000' } }, FD);
   const st2 = (await api('GET', '/api/frontdesk/state', null, FD)).body, bk = st2.bookings.find(b => b.id === made.body.reservation_id);
-  ok(made.status === 201 && st2.bookings.length === before + 1 && bk && bk.status === 'Upcoming' && bk.start === D(30) && bk.end === D(32) && bk.total === rt.pricing.baseRate * 2 && bk.guest.name === 'State Guest' && bk.guest.profileId, 'a new reservation shows up as Upcoming with dates, room total and guest profile id');
+  ok(made.status === 201 && st2.bookings.length === before + 1 && bk && bk.status === 'Upcoming' && bk.start === D(n30) && bk.end === D(n30 + 2) && bk.total === rt.pricing.baseRate * 2 && bk.guest.name === 'State Guest' && bk.guest.profileId, 'a new reservation shows up as Upcoming with dates, room total and guest profile id');
   const pay = await api('POST', `/api/reservations/${made.body.reservation_id}/payments`, { amount: 10, method: 'CASH' }, FD);
   const bk2 = (await api('GET', '/api/frontdesk/state', null, FD)).body.bookings.find(b => b.id === made.body.reservation_id);
   ok(pay.status === 201 && bk2.payments.length === 1 && bk2.payments[0].amountCents === 1000 && bk2.payments[0].method === 'Cash' && bk2.payments[0].receiptNo, 'a payment shows in cents with method and receipt number');

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FDS Backend API
-  version: 0.8.0
+  version: 0.11.0
   description: Accommodation Front Desk System, SRS Draft 2. Contract for S055. Endpoints with an x-status other than implemented are defined now and built in that subtask.
 servers:
   - url: http://localhost:3000
@@ -459,7 +459,7 @@ paths:
     patch:
       tags:
         - Room types
-      summary: Change room type details. Details take effect at once; only rates need approval.
+      summary: "Change room type details (name, category, guests, description, facilities, photos...). On an APPROVED room type the change waits for approval like a rate change: the approved details stay in force, the waiting values are returned in pending_changes (Administrator and Manager only), and an Administrator, or a Manager who may approve rates, decides it in the approval inbox (kind ROOM_TYPE). Sending the current value again takes a waiting value back. A room type that is still PENDING changes at once."
       description: "Who: Administrator, Manager. Status: implemented."
       operationId: PATCH_api_room_types_id
       x-status: implemented
@@ -602,7 +602,7 @@ paths:
     post:
       tags:
         - Room types
-      summary: "S067: approve a PENDING room type and its pending rates in one step. Needs a pending Base Rate."
+      summary: "S067: approve a PENDING room type and its pending rates in one step (needs a pending Base Rate), or approve the waiting change to an approved room type."
       description: "Who: Administrator; Manager only if can_approve_rates. Status: implemented."
       operationId: POST_api_room_types_id_approve
       x-status: implemented
@@ -3092,6 +3092,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: priority
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - NORMAL
+              - HIGH
       responses:
         "200":
           description: Success
@@ -3178,8 +3186,133 @@ paths:
                 assigned_to:
                   type: string
                   format: uuid
+                priority:
+                  type: string
+                  enum:
+                    - NORMAL
+                    - HIGH
               required:
                 - room_id
+  /api/housekeeping/rooms/{roomId}/history:
+    get:
+      tags:
+        - Housekeeping
+      summary: "Cleaning history of one room: its finished cleans, newest first, with who finished each and the note."
+      description: "Who: All roles. Status: implemented."
+      operationId: GET_api_housekeeping_rooms_roomId_history
+      x-status: implemented
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: 1 to 100, default 20.
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HousekeepingTask"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/housekeeping/tasks/{id}:
+    patch:
+      tags:
+        - Housekeeping
+      summary: Change the notes or the priority of an open or in-progress cleaning task.
+      description: "Who: All roles. Status: implemented."
+      operationId: PATCH_api_housekeeping_tasks_id
+      x-status: implemented
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HousekeepingTask"
+        "400":
+          description: "Error code: VALIDATION_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Error code: SESSION_EXPIRED or SESSION_REVOKED or UNAUTHENTICATED"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "Error code: NOT_FOUND"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Error code: INVALID_STATE"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: "Error code: INTERNAL_ERROR"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                priority:
+                  type: string
+                  enum:
+                    - NORMAL
+                    - HIGH
   /api/housekeeping/tasks/{id}/assign:
     post:
       tags:
@@ -3300,7 +3433,7 @@ paths:
     post:
       tags:
         - Housekeeping
-      summary: "S103: finish a task. A checkout clean or inspection moves the room from CLEANING to AVAILABLE."
+      summary: "S103: finish a task. A checkout clean or inspection moves the room from CLEANING to AVAILABLE. Records who finished it and an optional note."
       description: "Who: All roles. Status: implemented."
       operationId: POST_api_housekeeping_tasks_id_complete
       x-status: implemented
@@ -3348,6 +3481,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
   /api/housekeeping/tasks/{id}/cancel:
     post:
       tags:
@@ -4192,7 +4334,7 @@ paths:
     get:
       tags:
         - Approvals
-      summary: "S134: requests waiting for approval (new room type with its rates, rate or rate change, add-on or add-on price), oldest first; or the history of APPROVED or REJECTED decisions, newest first. Only an Administrator, or a Manager who was given the right to approve rates, may use it (S133, S142)."
+      summary: "S134: requests waiting for approval (new room type with its rates, a change to the details of an approved room type, rate or rate change, add-on or add-on price), oldest first; or the history of APPROVED or REJECTED decisions, newest first. Only an Administrator, or a Manager who was given the right to approve rates, may use it (S133, S142)."
       description: "Who: Administrator; Manager only if can_approve_rates. Status: implemented."
       operationId: GET_api_approvals
       x-status: implemented
@@ -6994,6 +7136,13 @@ components:
           enum:
             - PENDING
             - APPROVED
+        pending_changes:
+          type: object
+          nullable: true
+        pending_at:
+          type: string
+          format: date-time
+          nullable: true
     RoomRef:
       type: object
       properties:
@@ -8070,6 +8219,17 @@ components:
           type: string
           nullable: true
         notes:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - NORMAL
+            - HIGH
+        completion_note:
+          type: string
+          nullable: true
+        done_by_name:
           type: string
           nullable: true
         reservation_ref:

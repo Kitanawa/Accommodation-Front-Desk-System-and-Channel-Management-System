@@ -1,5 +1,5 @@
 // M17 (S133 to S138): the manager approval inbox. One API over the three things that wait for approval:
-// a new room type (with its rates), a rate rule (new or a change), and an add-on (new, or a new price).
+// a new room type (with its rates) or a change to an approved room type's details, a rate rule (new or a change), and an add-on (new, or a new price).
 // The desktop endpoints (/api/room-types/:id/approve, /api/rates/:id/approve, /api/add-ons/:id/approve) call the same functions,
 // so there is one set of rules, and every decision is written to approval_decisions and the audit trail (S137).
 const crypto = require('crypto');
@@ -14,8 +14,23 @@ const rateCols = 'rr.rate_rule_id, rr.room_type_id, rr.rule_type, rr.rate_amount
 async function loadPending(q, propertyId, kind, id, lock) {
   const fu = lock ? ' for update of ' : '';
   if (kind === 'ROOM_TYPE') {
-    const [t] = await q(`select t.room_type_id, t.name, c.name category, t.max_guests, t.min_nights, t.description, t.approval_status from room_types t join room_categories c using(category_id)
-      where t.room_type_id=$1 and c.property_id=$2${fu}${lock ? 't' : ''}`, [id, propertyId]);
+    const [t] = await q(`select t.room_type_id, t.category_id, t.name, c.name category, t.max_guests, t.min_nights, t.description, t.facilities, t.photos, t.layout_info, t.approval_status, t.pending_changes, t.pending_at
+      from room_types t join room_categories c using(category_id) where t.room_type_id=$1 and c.property_id=$2${fu}${lock ? 't' : ''}`, [id, propertyId]);
+    if (t && t.approval_status === 'APPROVED' && t.pending_changes && Object.keys(t.pending_changes).length) {
+      // a change to the details of an approved room type: the approved details stay in force until a manager approves
+      const ch = t.pending_changes, current = {}, changes = {};
+      for (const k of Object.keys(ch)) {
+        if (k === 'category_id') {
+          const [nc] = await q('select name from room_categories where category_id=$1', [ch[k]]);
+          current.category = t.category; changes.category = nc ? nc.name : null;
+        } else { current[k] = t[k] ?? null; changes[k] = ch[k]; }
+      }
+      const show = x => (x === null || x === undefined ? 'empty' : Array.isArray(x) ? `${x.length} item(s)` : `"${String(x).slice(0, 40)}"`);
+      return { kind, id, title: `Room type change: ${t.name}`, submitted_at: t.pending_at,
+        summary: Object.keys(changes).map(k => `${k.replace('_', ' ')}: ${show(current[k])} to ${show(changes[k])}`).join('; ').slice(0, 300),
+        details: { is_change: true, name: t.name, category: t.category, current, changes },
+        revision: md5([t.name, t.category_id, ch, t.pending_at]) };
+    }
     if (!t || t.approval_status !== 'PENDING') return null;
     const rates = await q(`select ${rateCols} from rate_rules rr where rr.room_type_id=$1 and rr.approval_status='PENDING' and rr.supersedes_id is null order by rr.rule_type, rr.created_at`, [id]);
     const base = rates.find(r => r.rule_type === 'BASE');
@@ -72,7 +87,18 @@ async function record(t, propertyId, userId, item, decision, reason, extra) {
 async function approve(t, propertyId, userId, kind, id, revision) {
   const item = await guard(t, propertyId, kind, id, revision);
   let extra = {};
-  if (kind === 'ROOM_TYPE') {
+  if (kind === 'ROOM_TYPE' && item.details.is_change) {
+    const [cur] = await t.q('select * from room_types where room_type_id=$1', [id]);
+    const ch = cur.pending_changes, cat = ch.category_id || cur.category_id, nm = ch.name || cur.name;
+    if (ch.category_id) { const [c] = await t.q('select 1 x from room_categories where category_id=$1 and property_id=$2', [ch.category_id, propertyId]); if (!c) throw conflict('The room category in this change no longer exists. Reject this change.', 'INVALID_STATE'); }
+    const [dup] = await t.q('select 1 x from room_types where category_id=$1 and lower(name)=lower($2) and room_type_id<>$3', [cat, nm, id]);
+    if (dup) throw conflict('Another room type in this category now has this name. Reject this change.', 'INVALID_STATE');
+    const sets = [], vals = [id];
+    for (const [k, val] of Object.entries(ch)) { const json = ['facilities', 'photos'].includes(k); vals.push(json ? (val === null ? null : JSON.stringify(val)) : val); sets.push(`${k}=$${vals.length}${json ? '::jsonb' : ''}`); }
+    await t.q(`update room_types set ${sets.join(', ')}, pending_changes=null, pending_by=null, pending_at=null where room_type_id=$1`, vals);
+    await S.audit(t.q, userId, 'ROOM_TYPE_CHANGE_APPROVED', 'room_types', id, Object.fromEntries(Object.keys(ch).map(k => [k, cur[k]])), ch);
+    extra = { changes_applied: Object.keys(ch) };
+  } else if (kind === 'ROOM_TYPE') {
     const [base] = await t.q("select 1 x from rate_rules where room_type_id=$1 and rule_type='BASE' and approval_status='PENDING' and supersedes_id is null", [id]);
     if (!base) throw conflict('Add a Base Rate before approving this room type.', 'INVALID_STATE');
     const rates = await t.q("update rate_rules set approval_status='APPROVED' where room_type_id=$1 and approval_status='PENDING' and supersedes_id is null returning rate_rule_id", [id]);
@@ -111,7 +137,9 @@ async function approve(t, propertyId, userId, kind, id, revision) {
 // Reject: the request is taken away (a pending room type, rate or add-on has not been in use) and a copy stays in the decision history with the reason.
 async function reject(t, propertyId, userId, kind, id, reason, revision) {
   const item = await guard(t, propertyId, kind, id, revision);
-  if (kind === 'ROOM_TYPE') {
+  if (kind === 'ROOM_TYPE' && item.details.is_change) {
+    await t.q('update room_types set pending_changes=null, pending_by=null, pending_at=null where room_type_id=$1', [id]);
+  } else if (kind === 'ROOM_TYPE') {
     const [used] = await t.q('select 1 x from reservation_rooms where room_type_id=$1 limit 1', [id]);
     if (used) throw conflict('This room type has reservations.', 'INVALID_STATE');
     await t.q('delete from rate_rules where room_type_id=$1', [id]);
@@ -140,7 +168,7 @@ function mount(app, { getDb, auth, need, wrap }) {
 
   async function pendingList(propertyId, kindFilter) {
     const out = [];
-    const typeIds = kindFilter && kindFilter !== 'ROOM_TYPE' ? [] : await q("select t.room_type_id id from room_types t join room_categories c using(category_id) where c.property_id=$1 and t.approval_status='PENDING'", [propertyId]);
+    const typeIds = kindFilter && kindFilter !== 'ROOM_TYPE' ? [] : await q("select t.room_type_id id from room_types t join room_categories c using(category_id) where c.property_id=$1 and (t.approval_status='PENDING' or t.pending_changes is not null)", [propertyId]);
     for (const r of typeIds) { const x = await loadPending(q, propertyId, 'ROOM_TYPE', r.id); if (x) out.push(x); }
     const rateIds = kindFilter && kindFilter !== 'RATE' ? [] : await q("select rr.rate_rule_id id from rate_rules rr join room_types t using(room_type_id) join room_categories c on c.category_id=t.category_id where c.property_id=$1 and rr.approval_status='PENDING' and t.approval_status='APPROVED'", [propertyId]);
     for (const r of rateIds) { const x = await loadPending(q, propertyId, 'RATE', r.id); if (x) out.push(x); }
