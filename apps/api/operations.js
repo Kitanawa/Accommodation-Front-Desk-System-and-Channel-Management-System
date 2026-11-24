@@ -3,7 +3,7 @@ const S = require('./service');
 const P = require('./permissions');
 const { bad, notFound, conflict, Fields, isUuid } = require('./errors');
 
-const TASK_TYPES = ['CHECKOUT_CLEAN', 'DAILY_CLEAN', 'INSPECTION'];
+const TASK_TYPES = ['CHECKOUT_CLEAN', 'DAILY_CLEAN', 'INSPECTION'], PRIORITIES = ['NORMAL', 'HIGH'];
 const CHANNELS = ['IN_APP', 'EMAIL'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DAY = col => `((${col} at time zone 'UTC') + interval '8 hours')::date`;      // property days are UTC+8
@@ -104,9 +104,9 @@ module.exports = function mount(app, { getDb, auth, need, wrap }) {
   }));
 
   // ---------- S103 housekeeping ----------
-  const taskSql = `select h.task_id, h.room_id, rm.room_number, h.task_type, h.status, h.assigned_to, u.full_name assigned_name, h.notes, r.reservation_ref, h.created_at, h.started_at, h.done_at
+  const taskSql = `select h.task_id, h.room_id, rm.room_number, h.task_type, h.status, h.assigned_to, u.full_name assigned_name, h.notes, h.priority, h.completion_note, du.full_name done_by_name, r.reservation_ref, h.created_at, h.started_at, h.done_at
     from housekeeping_tasks h join rooms rm using(room_id) join room_types t on t.room_type_id=rm.room_type_id join room_categories c on c.category_id=t.category_id
-    left join users u on u.user_id=h.assigned_to left join reservations r on r.reservation_id=h.reservation_id where c.property_id=$1`;
+    left join users u on u.user_id=h.assigned_to left join users du on du.user_id=h.done_by left join reservations r on r.reservation_id=h.reservation_id where c.property_id=$1`;
   const taskOf = async (qq, req, id) => { const [x] = await qq(`${taskSql} and h.task_id=$2`, [prop(req), id]); if (!x) throw notFound('Task not found.'); return x; };
   app.get('/api/housekeeping/assignees', auth, need('stay.operate'), wrap(async (req, res) => res.json(await q(
     'select u.user_id, u.full_name, r.name role from users u join roles r using(role_id) where u.property_id=$1 and u.is_active order by u.full_name', [prop(req)]))));
@@ -116,8 +116,18 @@ module.exports = function mount(app, { getDb, auth, need, wrap }) {
     if (Q.status) { if (!['OPEN', 'IN_PROGRESS', 'DONE', 'CANCELLED'].includes(Q.status)) f.add('status', 'Must be OPEN, IN_PROGRESS, DONE or CANCELLED.'); else add('h.status=?', Q.status); }
     if (Q.assigned_to) { const v = Q.assigned_to === 'me' ? req.user.user_id : Q.assigned_to; if (!isUuid(v)) f.add('assigned_to', 'A user id or "me".'); else add('h.assigned_to=?', v); }
     if (Q.room_id) { if (!isUuid(Q.room_id)) f.add('room_id', 'Must be a UUID.'); else add('h.room_id=?', Q.room_id); }
+    if (Q.priority) { if (!PRIORITIES.includes(Q.priority)) f.add('priority', 'Must be NORMAL or HIGH.'); else add('h.priority=?', Q.priority); }
     f.check();
-    res.json(await q(`${taskSql} ${where.length ? 'and ' + where.join(' and ') : ''} order by case h.status when 'IN_PROGRESS' then 0 when 'OPEN' then 1 else 2 end, h.created_at desc limit 200`, params));
+    res.json(await q(`${taskSql} ${where.length ? 'and ' + where.join(' and ') : ''} order by case h.status when 'IN_PROGRESS' then 0 when 'OPEN' then 1 else 2 end, case when h.status in ('OPEN','IN_PROGRESS') and h.priority='HIGH' then 0 else 1 end, coalesce(h.done_at, h.created_at) desc limit 200`, params));
+  }));
+  // cleaning history of one room: its finished cleans, newest first (default 20, at most 100)
+  app.get('/api/housekeeping/rooms/:roomId/history', auth, need('stay.operate'), wrap(async (req, res) => {
+    if (!isUuid(req.params.roomId)) throw bad('Please correct the fields listed.', [{ field: 'roomId', message: 'Must be a UUID.' }]);
+    const f = new Fields(), raw = req.query.limit, limit = raw === undefined ? 20 : Number(raw);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) f.add('limit', 'A whole number from 1 to 100.');
+    f.check();
+    await roomOf(q, req, req.params.roomId);
+    res.json(await q(`${taskSql} and h.room_id=$2 and h.status='DONE' order by h.done_at desc limit ${limit}`, [prop(req), req.params.roomId]));
   }));
   app.post('/api/housekeeping/tasks', auth, need('stay.operate'), wrap(async (req, res) => {
     const b = req.body || {}, f = new Fields(), type = b.task_type === undefined ? 'DAILY_CLEAN' : b.task_type;
@@ -126,15 +136,36 @@ module.exports = function mount(app, { getDb, auth, need, wrap }) {
     const notes = b.notes === undefined || b.notes === null || b.notes === '' ? null : String(b.notes).trim();
     if (notes !== null && notes.length > 300) f.add('notes', 'At most 300 characters.');
     if (b.assigned_to !== undefined && b.assigned_to !== null && !isUuid(b.assigned_to)) f.add('assigned_to', 'Must be a user id.');
+    const priority = b.priority === undefined ? 'NORMAL' : b.priority;
+    if (!PRIORITIES.includes(priority)) f.add('priority', 'Must be NORMAL or HIGH.');
     f.check();
     const id = await db().tx(async t => {
       await roomOf(t.q, req, b.room_id);
       if (b.assigned_to) await assignee(t.q, req, b.assigned_to);
-      const [x] = await t.q('insert into housekeeping_tasks(room_id,task_type,notes,assigned_to,created_by) values($1,$2,$3,$4,$5) returning task_id', [b.room_id, type, notes, b.assigned_to || null, req.user.user_id]);
-      await S.audit(t.q, req.user.user_id, 'HOUSEKEEPING_TASK_CREATED', 'housekeeping_tasks', x.task_id, null, { room_id: b.room_id, task_type: type });
+      const [x] = await t.q('insert into housekeeping_tasks(room_id,task_type,notes,assigned_to,created_by,priority) values($1,$2,$3,$4,$5,$6) returning task_id', [b.room_id, type, notes, b.assigned_to || null, req.user.user_id, priority]);
+      await S.audit(t.q, req.user.user_id, 'HOUSEKEEPING_TASK_CREATED', 'housekeeping_tasks', x.task_id, null, { room_id: b.room_id, task_type: type, priority });
       return x.task_id;
     });
     res.status(201).json(await taskOf(q, req, id));
+  }));
+  // change the notes or the priority of a task that is still open
+  app.patch('/api/housekeeping/tasks/:id', auth, need('stay.operate'), wrap(async (req, res) => {
+    const b = req.body || {}, f = new Fields(), sets = {};
+    if (b.priority !== undefined) { if (!PRIORITIES.includes(b.priority)) f.add('priority', 'Must be NORMAL or HIGH.'); else sets.priority = b.priority; }
+    if (b.notes !== undefined) {
+      const n = b.notes === null || b.notes === '' ? null : String(b.notes).trim();
+      if (n !== null && n.length > 300) f.add('notes', 'At most 300 characters.'); else sets.notes = n;
+    }
+    if (!Object.keys(sets).length && !f.any) f.add('body', 'Send notes or priority.');
+    f.check();
+    await db().tx(async t => {
+      const x = await taskOf(t.q, req, req.params.id);
+      if (!['OPEN', 'IN_PROGRESS'].includes(x.status)) throw conflict(`Only an open task can be changed. This one is ${x.status}.`, 'INVALID_STATE');
+      const keys = Object.keys(sets);
+      await t.q(`update housekeeping_tasks set ${keys.map((k, i) => `${k}=$${i + 2}`).join(',')} where task_id=$1`, [x.task_id, ...keys.map(k => sets[k])]);
+      await S.audit(t.q, req.user.user_id, 'HOUSEKEEPING_UPDATED', 'housekeeping_tasks', x.task_id, { notes: x.notes, priority: x.priority }, { ...{ notes: x.notes, priority: x.priority }, ...sets });
+    });
+    res.json(await taskOf(q, req, req.params.id));
   }));
   async function assignee(qq, req, userId) {
     const [u] = await qq('select user_id from users where user_id=$1 and property_id=$2 and is_active', [userId, prop(req)]);
@@ -162,12 +193,15 @@ module.exports = function mount(app, { getDb, auth, need, wrap }) {
   }));
   // finishing a clean makes the room sellable again (CLEANING -> AVAILABLE). A room taken out of service meanwhile is not touched.
   app.post('/api/housekeeping/tasks/:id/complete', auth, need('stay.operate'), wrap(async (req, res) => {
+    const f = new Fields(), note = (req.body || {}).note === undefined || req.body.note === null || req.body.note === '' ? null : String(req.body.note).trim();
+    if (note !== null && note.length > 300) f.add('note', 'At most 300 characters.');
+    f.check();
     await db().tx(async t => {
       const x = await taskOf(t.q, req, req.params.id), room = await roomOf(t.q, req, x.room_id);
       if (!['OPEN', 'IN_PROGRESS'].includes(x.status)) throw conflict(`Only an open task can be completed. This one is ${x.status}.`, 'INVALID_STATE');
       const moves = x.task_type !== 'DAILY_CLEAN' && room.status === 'CLEANING';
       if (x.task_type !== 'DAILY_CLEAN' && ['OCCUPIED', 'MAINTENANCE_BLOCKED'].includes(room.status)) throw conflict(`Room ${room.room_number} is ${room.status} now, so the clean cannot finish it. Cancel the task or free the room first.`, 'INVALID_STATE');
-      const [u] = await t.q("update housekeeping_tasks set status='DONE', done_at=now(), assigned_to=coalesce(assigned_to,$2) where task_id=$1 and status in ('OPEN','IN_PROGRESS') returning task_id", [x.task_id, req.user.user_id]);
+      const [u] = await t.q("update housekeeping_tasks set status='DONE', done_at=now(), done_by=$2, completion_note=$3, assigned_to=coalesce(assigned_to,$2) where task_id=$1 and status in ('OPEN','IN_PROGRESS') returning task_id", [x.task_id, req.user.user_id, note]);
       if (!u) throw conflict('The task changed while you were working. Reload and try again.', 'INVALID_STATE');
       if (moves) { await S.moveRoom(t.q, room.room_id, 'AVAILABLE', req.user.user_id, 'cleaning done'); await S.notify(t.q, prop(req), 'ROOM_READY', `Room ${room.room_number} is ready`, { room_id: room.room_id }); }
       await S.audit(t.q, req.user.user_id, 'HOUSEKEEPING_DONE', 'housekeeping_tasks', x.task_id, { status: x.status }, { status: 'DONE', room: room.room_number, room_status: moves ? 'AVAILABLE' : room.status });

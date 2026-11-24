@@ -76,14 +76,17 @@ module.exports = function mountCatalog(app, { getDb, auth, need, wrap, validateR
   }));
 
   // ---------- S061 room types (details, facilities, photo metadata) and S067 combined submission ----------
-  const typeCols = `t.room_type_id, t.category_id, c.name category, t.name, t.max_guests, t.min_nights, t.description, t.facilities, t.photos, t.layout_info, t.approval_status`;
+  const typeCols = `t.room_type_id, t.category_id, c.name category, t.name, t.max_guests, t.min_nights, t.description, t.facilities, t.photos, t.layout_info, t.approval_status, t.pending_changes, t.pending_at`;
   const typeFrom = `from room_types t join room_categories c using(category_id)`;
   const typeRow = async (run, id, propertyId) => (await run(`select ${typeCols} ${typeFrom} where t.room_type_id=$1 and c.property_id=$2`, [id, propertyId]))[0];
-  app.get('/api/room-types', auth, need('catalog.view'), wrap(async (req, res) => res.json(await q(
-    `select ${typeCols} ${typeFrom} where c.property_id=$1 ${canAll(req) ? '' : "and t.approval_status='APPROVED'"} order by t.name`, [prop(req)]))));
+  // Waiting changes are for Administrator and Manager only; Front Desk sees the approved details.
+  const showTo = (req, t) => { if (!canAll(req)) { delete t.pending_changes; delete t.pending_at; } return t; };
+  app.get('/api/room-types', auth, need('catalog.view'), wrap(async (req, res) => res.json((await q(
+    `select ${typeCols} ${typeFrom} where c.property_id=$1 ${canAll(req) ? '' : "and t.approval_status='APPROVED'"} order by t.name`, [prop(req)])).map(t => showTo(req, t)))));
   app.get('/api/room-types/:id', auth, need('catalog.view'), wrap(async (req, res) => {
     const t = await typeRow(q, req.params.id, prop(req));
     if (!t || (t.approval_status !== 'APPROVED' && !canAll(req))) throw notFound('Room type not found.');
+    showTo(req, t);
     t.rates = await q(`select rate_rule_id, rule_type, rate_amount::float8 rate_amount, date_from::text date_from, date_to::text date_to, selected_days, specific_date::text specific_date,
         priority, approval_status, supersedes_id, effective_from::text effective_from, valid_until::text valid_until
       from rate_rules where room_type_id=$1 ${canAll(req) ? '' : "and approval_status='APPROVED'"} order by rule_type, created_at`, [t.room_type_id]);
@@ -133,6 +136,9 @@ module.exports = function mountCatalog(app, { getDb, auth, need, wrap, validateR
     });
     res.status(201).json({ room_type_id: created, approval_status: 'PENDING', rates_submitted: rates.length });
   }));
+  // A new (PENDING) room type is still being set up, so its details change at once. For an APPROVED room type every change to its details
+  // (name, category, guests, description, facilities, photos...) waits for approval, like a rate change: the approved details stay in force.
+  // Sending the current values again takes a waiting value back. When nothing is left waiting the request is cleared.
   app.patch('/api/room-types/:id', auth, need('catalog.manage'), wrap(async (req, res) => {
     const b = req.body || {}, f = new Fields(), cur = await typeRow(q, req.params.id, prop(req));
     if (!cur) throw notFound('Room type not found.');
@@ -140,19 +146,31 @@ module.exports = function mountCatalog(app, { getDb, auth, need, wrap, validateR
     if (!Object.keys(b).length) f.add('body', 'Send at least one field to change.');
     f.check();
     if (v.category_id && !(await catRow(q, v.category_id, prop(req)))) throw bad('Please correct the fields listed.', [{ field: 'category_id', message: 'No such room category in your property.' }]);
+    const same = (a, c) => JSON.stringify(a ?? null) === JSON.stringify(c ?? null);
     await db().tx(async t => {
-      await typeNameFree(t.q, v.category_id || cur.category_id, v.name || cur.name, cur.room_type_id);
-      const sets = [], vals = [cur.room_type_id];
-      for (const [k, val] of Object.entries(v)) { vals.push(['facilities', 'photos'].includes(k) ? (val === null ? null : JSON.stringify(val)) : val); sets.push(`${k}=$${vals.length}${['facilities', 'photos'].includes(k) ? '::jsonb' : ''}`); }
-      if (sets.length) await t.q(`update room_types set ${sets.join(', ')} where room_type_id=$1`, vals);
-      await audit(t.q, req, 'ROOM_TYPE_UPDATED', 'room_types', cur.room_type_id, Object.fromEntries(Object.keys(v).map(k => [k, cur[k]])), v);
+      if (cur.approval_status !== 'APPROVED') {
+        await typeNameFree(t.q, v.category_id || cur.category_id, v.name || cur.name, cur.room_type_id);
+        const sets = [], vals = [cur.room_type_id];
+        for (const [k, val] of Object.entries(v)) { vals.push(['facilities', 'photos'].includes(k) ? (val === null ? null : JSON.stringify(val)) : val); sets.push(`${k}=$${vals.length}${['facilities', 'photos'].includes(k) ? '::jsonb' : ''}`); }
+        if (sets.length) await t.q(`update room_types set ${sets.join(', ')} where room_type_id=$1`, vals);
+        await audit(t.q, req, 'ROOM_TYPE_UPDATED', 'room_types', cur.room_type_id, Object.fromEntries(Object.keys(v).map(k => [k, cur[k]])), v);
+        return;
+      }
+      const merged = { ...(cur.pending_changes || {}), ...v };
+      for (const k of Object.keys(merged)) if (same(merged[k], cur[k])) delete merged[k];
+      await typeNameFree(t.q, merged.category_id || cur.category_id, merged.name || cur.name, cur.room_type_id);
+      const had = cur.pending_changes && Object.keys(cur.pending_changes).length, has = Object.keys(merged).length;
+      if (!had && !has) return;                                           // the values sent are the ones already in force
+      if (!has) await t.q('update room_types set pending_changes=null, pending_by=null, pending_at=null where room_type_id=$1', [cur.room_type_id]);
+      else await t.q('update room_types set pending_changes=$2::jsonb, pending_by=$3, pending_at=now() where room_type_id=$1', [cur.room_type_id, JSON.stringify(merged), req.user.user_id]);
+      await audit(t.q, req, has ? 'ROOM_TYPE_CHANGE_SUBMITTED' : 'ROOM_TYPE_CHANGE_WITHDRAWN', 'room_types', cur.room_type_id, Object.fromEntries(Object.keys(had ? { ...cur.pending_changes, ...merged } : merged).map(k => [k, cur[k]])), has ? merged : null);
     });
-    res.json(await typeRow(q, cur.room_type_id, prop(req)));
+    res.json(showTo(req, await typeRow(q, cur.room_type_id, prop(req))));
   }));
   // S067: PENDING -> APPROVED. Approving a room type approves its pending rates in the same step.
   app.post('/api/room-types/:id/approve', auth, need('rates.approve'), wrap(async (req, res) => {
     const out = await db().tx(t => Approvals.logic.approve(t, prop(req), req.user.user_id, 'ROOM_TYPE', req.params.id));
-    res.json({ ok: true, approval_status: 'APPROVED', rates_approved: out.rates_approved });
+    res.json({ ok: true, approval_status: 'APPROVED', rates_approved: out.rates_approved ?? 0 });
   }));
   // A PENDING room type that was never sold can be withdrawn together with its pending rates.
   app.delete('/api/room-types/:id', auth, need('catalog.manage'), wrap(async (req, res) => {

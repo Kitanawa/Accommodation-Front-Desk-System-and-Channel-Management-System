@@ -1,10 +1,10 @@
-# FDS API Contract 
+# FDS API Contract (S055)
 
-Version 0.8, October 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
+Version 0.11, November 2026. Owner: Chester (backend). Consumers: Qiwei (front end), Ivan (environment, audit events). Business rules: Eric.
 
 This file is generated from `docs/contract.js` (the same file produces `openapi.yaml`), and a test checks that every endpoint marked *implemented* really exists in the server and that none is missing here.
 
-**Status:** all 126 endpoints run today.
+**Status:** all 128 endpoints run today.
 
 ## 1. Conventions
 
@@ -232,8 +232,8 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `GET /api/room-types` | All roles | Implemented | Room types of my property. Front Desk sees APPROVED types only; Administrator and Manager also see PENDING ones. |
 | `GET /api/room-types/{id}` | All roles | Implemented | One room type with its rates and rooms (Front Desk sees approved rates only). |
 | `POST /api/room-types` | Administrator, Manager | Implemented | S067: submit a room type together with its rates. Everything starts PENDING; the type cannot be sold until approved. |
-| `PATCH /api/room-types/{id}` | Administrator, Manager | Implemented | Change room type details. Details take effect at once; only rates need approval. |
-| `POST /api/room-types/{id}/approve` | Administrator; Manager only if can_approve_rates | Implemented | S067: approve a PENDING room type and its pending rates in one step. Needs a pending Base Rate. |
+| `PATCH /api/room-types/{id}` | Administrator, Manager | Implemented | Change room type details (name, category, guests, description, facilities, photos...). On an APPROVED room type the change waits for approval like a rate change: the approved details stay in force, the waiting values are returned in pending_changes (Administrator and Manager only), and an Administrator, or a Manager who may approve rates, decides it in the approval inbox (kind ROOM_TYPE). Sending the current value again takes a waiting value back. A room type that is still PENDING changes at once. |
+| `POST /api/room-types/{id}/approve` | Administrator; Manager only if can_approve_rates | Implemented | S067: approve a PENDING room type and its pending rates in one step (needs a pending Base Rate), or approve the waiting change to an approved room type. |
 | `DELETE /api/room-types/{id}` | Administrator, Manager | Implemented | Withdraw a room type that is still PENDING and has no reservations (its rates and rooms go with it). |
 
 **`GET /api/room-types/{id}`** returns 200 `RoomTypeDetail`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
@@ -588,9 +588,11 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `GET /api/housekeeping/assignees` | All roles | Implemented | S103: active users of this property who can be given a task. |
 | `GET /api/housekeeping/tasks` | All roles | Implemented | S103: cleaning tasks, open and in-progress first (at most 200). |
 | `POST /api/housekeeping/tasks` | All roles | Implemented | S103: create a task by hand. Check-out creates a CHECKOUT_CLEAN task by itself (unless the property sets the post-stay status to AVAILABLE). |
+| `GET /api/housekeeping/rooms/{roomId}/history` | All roles | Implemented | Cleaning history of one room: its finished cleans, newest first, with who finished each and the note. |
+| `PATCH /api/housekeeping/tasks/{id}` | All roles | Implemented | Change the notes or the priority of an open or in-progress cleaning task. |
 | `POST /api/housekeeping/tasks/{id}/assign` | All roles | Implemented | S103: give an open or in-progress task to someone. |
 | `POST /api/housekeeping/tasks/{id}/start` | All roles | Implemented | S103: start an open task (it is given to the caller if nobody has it). |
-| `POST /api/housekeeping/tasks/{id}/complete` | All roles | Implemented | S103: finish a task. A checkout clean or inspection moves the room from CLEANING to AVAILABLE. |
+| `POST /api/housekeeping/tasks/{id}/complete` | All roles | Implemented | S103: finish a task. A checkout clean or inspection moves the room from CLEANING to AVAILABLE. Records who finished it and an optional note. |
 | `POST /api/housekeeping/tasks/{id}/cancel` | All roles | Implemented | S103: cancel an open or in-progress task. |
 
 **`GET /api/housekeeping/tasks`** returns 200 `HousekeepingTask[]`. Errors: `VALIDATION_ERROR`.
@@ -600,6 +602,7 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `status` | one of OPEN, IN_PROGRESS, DONE, CANCELLED | No |  |
 | `assigned_to` | string | No | A user id, or "me". |
 | `room_id` | UUID | No |  |
+| `priority` | one of NORMAL, HIGH | No |  |
 
 **`POST /api/housekeeping/tasks`** returns 201 `HousekeepingTask`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
 
@@ -609,6 +612,20 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | `task_type` | one of CHECKOUT_CLEAN, DAILY_CLEAN, INSPECTION | No | Default DAILY_CLEAN. |
 | `notes` | string | No | At most 300 characters. |
 | `assigned_to` | UUID | No |  |
+| `priority` | one of NORMAL, HIGH | No | Default NORMAL. |
+
+**`GET /api/housekeeping/rooms/{roomId}/history`** returns 200 `HousekeepingTask[]`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`.
+
+| Query parameters | Type | Required | Notes |
+|---|---|---|---|
+| `limit` | int | No | 1 to 100, default 20. |
+
+**`PATCH /api/housekeeping/tasks/{id}`** returns 200 `HousekeepingTask`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `notes` | string | No | At most 300 characters; null clears it. |
+| `priority` | one of NORMAL, HIGH | No |  |
 
 **`POST /api/housekeeping/tasks/{id}/assign`** returns 200 `HousekeepingTask`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
 
@@ -619,6 +636,10 @@ POST /api/reservations          (Authorization: Bearer q3...)
 **`POST /api/housekeeping/tasks/{id}/start`** returns 200 `HousekeepingTask`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
 
 **`POST /api/housekeeping/tasks/{id}/complete`** returns 200 `HousekeepingTask`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
+
+| Body fields | Type | Required | Notes |
+|---|---|---|---|
+| `note` | string | No | At most 300 characters. |
 
 **`POST /api/housekeeping/tasks/{id}/cancel`** returns 200 `HousekeepingTask`. Errors: `VALIDATION_ERROR`, `NOT_FOUND`, `INVALID_STATE`.
 
@@ -743,7 +764,7 @@ POST /api/reservations          (Authorization: Bearer q3...)
 | Endpoint | Who | Status | What it does |
 |---|---|---|---|
 | `GET /api/approvals/summary` | Administrator; Manager only if can_approve_rates | Implemented | S134: how many requests wait for a decision, by kind (for a badge in the manager app). |
-| `GET /api/approvals` | Administrator; Manager only if can_approve_rates | Implemented | S134: requests waiting for approval (new room type with its rates, rate or rate change, add-on or add-on price), oldest first; or the history of APPROVED or REJECTED decisions, newest first. Only an Administrator, or a Manager who was given the right to approve rates, may use it (S133, S142). |
+| `GET /api/approvals` | Administrator; Manager only if can_approve_rates | Implemented | S134: requests waiting for approval (new room type with its rates, a change to the details of an approved room type, rate or rate change, add-on or add-on price), oldest first; or the history of APPROVED or REJECTED decisions, newest first. Only an Administrator, or a Manager who was given the right to approve rates, may use it (S133, S142). |
 | `GET /api/approvals/{kind}/{id}` | Administrator; Manager only if can_approve_rates | Implemented | S134: one request with its details and its revision. A request that was decided shows the decision. |
 | `POST /api/approvals/{kind}/{id}/approve` | Administrator; Manager only if can_approve_rates | Implemented | S135: approve with the same rules as the desktop endpoints. Send the revision the manager saw: if the request changed since, the answer is STALE_REQUEST and nothing happens (S138). A request already decided is refused with INVALID_STATE and the name of the person who decided; two decisions at the same moment: one wins. |
 | `POST /api/approvals/{kind}/{id}/reject` | Administrator; Manager only if can_approve_rates | Implemented | S137: reject with a reason (3 to 300 characters). The pending room type, rate or add-on is taken away; a copy stays in the decision history with who, when and why. |
@@ -1117,7 +1138,7 @@ Please confirm or change these in review; each one is easy to change before the 
 7. **Pagination:** only `GET /api/reservations` is paged (default 25 rows, at most 100). Other lists return at most 200 rows.
 8. **Statuses** (`CONFIRMED`, `CHECKED_IN`, `CHECKED_OUT`, `CANCELLED`; `UNPAID`, `PARTIAL`, `PAID`) come from the functional requirements; the SRS does not list them.
 9. **The web app's wording differs:** its Staff screen says managers can manage managers, and offers status "Pending Approval". This server follows the SRS reading in item 3 (a Manager manages Front Desk accounts only) and has no pending state; both are refused with a clear message. A changed email address is also refused for now.
-10. **Room types need approval before they are sold** (S067): a new room type is submitted with its rates, stays PENDING, and one approval makes the type and its pending rates live. Front Desk sees approved types only. Editing details of a room type takes effect at once; only rates need approval. The SRS only names Pending and Approved. A manager can still say no (M17, item 26): rejecting takes the pending item away and keeps a copy with the reason.
+10. **Room types need approval before they are sold** (S067): a new room type is submitted with its rates, stays PENDING, and one approval makes the type and its pending rates live. Front Desk sees approved types only. A change to the details of an approved room type (name, category, guests, description, facilities, photos) also waits for approval (migration 010): the approved details stay in force and the waiting values are in `pending_changes`; Administrator, or a Manager who may approve rates, decides it in the inbox (kind ROOM_TYPE); a name that another room type has taken meanwhile is refused at approval. The SRS only names Pending and Approved. A manager can still say no (M17, item 26): rejecting takes the pending item away and keeps a copy with the reason.
 11. **Rate validation** (S063 to S065): a rate is more than 0, at most 9,999,999.99, with up to 2 decimals, in the property currency (a different `currency_code` is refused). A Date Range covers at most 366 days; `selected_days` lists each day once; `priority` is 0 to 100.
 12. **Rate ties** (S066): precedence is item 5. When a new rule has the same type and priority as an approved rule on an overlapping night, the response carries a `PRIORITY_TIE` warning, and the preview lists tied nights. The rule is still created.
 13. **Add-ons** (S069) are not an SRS entity; they are modelled as their own list with their own approval, separate from room types. A new price on an approved add-on waits as `pending_unit_price`. A charge from an add-on stores the price of that moment. Quantity defaults to 1 per stay, the number of nights per night, or the number of guests per guest.
@@ -1151,3 +1172,6 @@ Please confirm or change these in review; each one is easy to change before the 
 | 0.6 | M11 (S079 to S087): holds (`/api/holds`), reservation search with filters, sorting and paging, edits of dates, room type and guests, extensions, No-Show (`POST /api/reservations/{id}/no-show`), status NO_SHOW, error code `HOLD_EXPIRED`, check-in precondition on the arrival date, optional `room_id` on check-in (migration 005). New fields: `AvailabilityItem.rooms_total`, `ReservationRow` (phone, created_at), `ReservationDetail` (status_remark, status_changed_at, checked_in_at, checked_out_at). Check-in before the arrival date used to work and is now refused. |
 | 0.7 | M13 (S097 to S106): folio detail, voiding, discounts and tax, payments and deposits with duplicate protection, refunds, invoice and receipt data, reconciliation, housekeeping, maintenance, settings, notifications, reports (migration 006, 35 endpoints). New fields on `ReservationDetail`: voided_charges, discounts, refunds, subtotal, discount_total, tax_rate_pct, tax_total, total_refunded; on `Charge`: stay_date, voided_at, void_reason; on `Payment`: kind, receipt_no. `total_charges` now includes discounts and tax (identical until a tax rate or discount is used). New role permissions: billing.discount, billing.refund, settings.manage, maintenance.release. Nothing removed or renamed. |
 | 0.8 | M17 and M21 (S133 to S138, S166 to S175): approval inbox (`/api/approvals`, reject with reason, revision check), public booking engine (`/api/public/...`: availability, booking attempt, payment session, signed payment webhook, guest cancel), confirmation e-mail queue, cancellation rule with refund requests (migration 007, 12 endpoints). New settings: online_deposit_pct, free_cancellation_hours, late_cancel_fee_pct. New error codes: STALE_REQUEST, INVALID_SIGNATURE, PAYMENT_MISMATCH, PRICE_CHANGED, RATE_LIMITED. Cancelling a CONFIRMED reservation now creates refund requests for what was paid (after the fee). Nothing removed or renamed. |
+| 0.9 | Staff web app server mode and guest accounts (migrations 008 and 009): `GET /api/frontdesk/state`, guest profiles (`/api/guests`), property name, logo and contact in `/api/settings`, room moves for guests already in the house, guest accounts for the booking website (`/api/public/account/...`). Nothing removed or renamed. |
+| 0.10 | Room type changes need approval (migration 010): `PATCH /api/room-types/{id}` on an approved room type now stores the change as waiting (`pending_changes` on `RoomType`, `pending_at`) instead of applying it; it is decided in the approval inbox (kind ROOM_TYPE, `details.is_change`). Before, details changed at once. No endpoint removed or renamed. |
+| 0.11 | Cleaning records (migration 011): a cleaning task has `priority` (NORMAL or HIGH), `done_by_name` and `completion_note`; new `GET /api/housekeeping/rooms/{roomId}/history` lists the finished cleans of a room; new `PATCH /api/housekeeping/tasks/{id}` changes notes or priority of an open task; `complete` takes an optional `note`; the task list filters by `priority`. The front desk state adds `priority`, `lastCleanedAt` and `lastCleanedBy` to each cleaning entry. No endpoint removed or renamed. |
