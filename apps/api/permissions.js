@@ -9,7 +9,7 @@ const MATRIX = {
   'users.manage_any':         [ADMIN],           // full
   'users.manage_frontdesk':   [ADMIN, MGR],      // "Limited": a Manager manages Front Desk accounts only (assumption)
   'catalog.view':             ALL,               // Manage room categories/types: Full, Full, View
-  'catalog.manage':           [ADMIN, MGR],
+  'catalog.manage':           ALL,
   'stock.view':               ALL,               // Manage room stock: Full, Full, View
   'stock.manage':             [ADMIN, MGR],
   'rates.view_approved':      ALL,               // Create/edit rates: Full, Full, View approved
