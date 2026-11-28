@@ -14,7 +14,7 @@ const MATRIX = {
   'stock.manage':             [ADMIN, MGR],
   'rates.view_approved':      ALL,               // Create/edit rates: Full, Full, View approved
   'rates.view_all':           [ADMIN, MGR],
-  'rates.manage':             [ADMIN, MGR],
+  'rates.manage':             ALL,
   'rates.approve':            [ADMIN, MGR],      // Manager only when users.can_approve_rates (Configurable), see can()
   'reservations.manage':      ALL,               // Create/edit/cancel reservations: Full for all
   'stay.operate':             ALL,               // Assign rooms / check-in / check-out: Full for all
